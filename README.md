@@ -16,6 +16,13 @@ If you want to support me, go to https://buymeacoffee.com/pocket_lucho
 | NBA Hangtime, L1.3 / L1.1 | Wolf Unit | runs from the ROMs |
 | NBA Maximum Hangtime, 1.3 | Wolf Unit | **built from source: program byte-identical** (1.03 from MAME also runs) |
 
+## Download
+
+* Windows 10/11 x64: [releases/NBAJamRecomp-windows-x64.zip](releases/NBAJamRecomp-windows-x64.zip)
+* Linux x64 (glibc 2.38+): [releases/NBAJamRecomp-linux-x64.tar.gz](releases/NBAJamRecomp-linux-x64.tar.gz)
+
+Unpack, copy your ROMs into `roms/` (see below) and run `NBAJamRecomp`.
+
 ## No game data is included
 
 Midway's code, graphics, sound and music are copyrighted, so neither this repository nor
