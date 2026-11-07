@@ -1,0 +1,125 @@
+NBA JAM Recomp - la saga NBA JAM de Midway recompilada desde su codigo fuente
+==========================================================================
+Creado por Pocket_lucho con Claude (Anthropic).
+Proyecto: https://github.com/PocketLucho/NBA-JAM---Recompiled
+Si quieres apoyarme ve a https://buymeacoffee.com/pocket_lucho
+
+Ejecuta NBAJamRecomp.exe (Windows 10/11 de 64 bits, sin instalacion). Al
+arrancar aparece un menu para elegir el juego (flechas + Enter, o el mando).
+Esc vuelve al menu. El idioma (castellano / English) se cambia en el menu.
+
+(English: see README.txt)
+
+
+IMPORTANTE: LOS DATOS DEL JUEGO LOS PONES TU
+--------------------------------------------
+El programa NO incluye graficos, sonido, musica ni codigo de Midway: estan
+protegidos por derechos de autor y no se pueden distribuir. Tienes que copiar
+en la carpeta roms\ tus propios ficheros. El programa los busca solo (por
+CRC32, da igual el nombre del fichero o si estan dentro de un .zip) y los
+extrae al arrancar cada juego; no hace falta descomprimir nada.
+
+  Juego                          Que copiar en roms\
+  -----------------------------  ---------------------------------------------
+  NBA JAM (1993)                 romset MAME nbajam.zip
+  NBA JAM Tournament Edition     romset MAME nbajamte.zip, o el ZIP del repo
+                                 historicalsource/nba-jam-tournament-edition
+                                 (sin nbajamte.zip usa el sonido de la SE)
+  NBA JAM T.E. Special Edition   el ZIP del repo Asure/nba-jam-tournament-edition-SE
+  NBA Hangtime                   romset MAME nbahangt.zip (ver L1.3 o L1.1)
+  NBA Maximum Hangtime           ver 1.3: ZIP del repo historicalsource/nba-hangtime
+                                 + nbahangt.zip (graficos y sonido DCS);
+                                 o ver 1.03: romset MAME nbamht.zip
+
+Los ZIP de los repositorios se descargan en GitHub con "Code -> Download ZIP":
+  https://github.com/historicalsource/nba-jam-tournament-edition
+  https://github.com/Asure/nba-jam-tournament-edition-SE
+  https://github.com/historicalsource/nba-hangtime
+
+Si a un juego le falta algo sale en gris; al seleccionarlo, un mensaje dice
+que fichero falta.
+
+Las versiones marcadas SRC (T.E. 4.0, Special Edition 5.02 y Maximum Hangtime
+1.3) se han compilado desde el codigo fuente publicado y el resultado es
+identico byte a byte a la ROM original, asi que da igual de donde salgan los
+datos. Quien quiera compilarlas el mismo puede usar tools/build_roms.sh del
+codigo fuente: lo que genera en data\ se usa si no se encuentran las ROMs.
+
+
+CONTROLES (teclado)
+-------------------
+              Arriba Abajo Izq Der   Tiro  Pase  Turbo  Start  Moneda
+  Jugador 1   flechas                 Z     X     C      1      5
+  Jugador 2   W   S   A   D           F     G     V      2      6
+  Jugador 3   teclado numerico 8/2/4/6  0   .   Intro    3      7
+  Jugador 4   I   K   J   L           H     ;     U      4      8
+
+  Mandos: cada mando conectado controla un jugador (A tiro, B pase,
+  X/gatillo turbo, Start, Back = moneda).
+
+  F1   ayuda en pantalla             F2  interruptor TEST (menu de servicio)
+  F3   reset
+  F4   video: Nitido -> Suavizado -> Scanlines -> CRT -> CRT curvo
+  F5   escalado entero (pixel perfect) si/no
+  F6   intensidad de las scanlines
+  F7   aspecto: 4:3 original -> 16:9 panoramico -> 16:10 -> llenar ventana
+  F11  pantalla completa (o Alt+Intro)
+  F12  captura de pantalla (PNG en la carpeta screenshots\; tambien Impr Pant)
+  P    pausa                         - / +  volumen
+  9    boton de servicio (credito)
+  Esc  volver al menu de juegos
+
+La configuracion (idioma, escala, teclas, volumen, DIPs) se guarda en
+nbajam_recomp.ini junto al .exe. Las puntuaciones y ajustes de cada juego
+(NVRAM/CMOS) se guardan en saves\.
+
+
+VIDEO (shaders)
+---------------
+  La imagen se dibuja con OpenGL y shaders. Con "escalado entero" (F5) cada
+  linea del juego ocupa exactamente el mismo numero de filas de pantalla, asi
+  las scanlines quedan perfectas y sin moire.
+    Nitido       pixeles limpios a cualquier tamano
+    Suavizado    filtrado bilineal
+    Scanlines    lineas oscuras entre lineas; F6 cambia la intensidad
+    CRT          haz gaussiano por linea, mascara de apertura RGB y gamma
+    CRT curvo    lo mismo con curvatura de tubo y vineteado
+  F7 estira la imagen a panoramico (algo deformada) o a toda la ventana.
+  Si tu tarjeta no tiene OpenGL 2.1 se usa un modo basico (opengl=0 en el
+  .ini lo fuerza).
+
+
+JUEGO EN RED (online)
+---------------------
+  Selecciona el juego en el menu y pulsa N (o Y en el mando).
+  * El anfitrion elige "Crear partida": es el jugador 1 y espera en la sala.
+    Pulsa Enter para empezar.
+  * Los demas eligen "Unirse a", escriben la IP del anfitrion (Ctrl+V pega) y
+    Enter. Entran como jugador 2, 3 y 4 por orden de llegada.
+  * Cada uno juega con sus controles de jugador 1 (teclado J1 o primer mando).
+  * Todos necesitan las mismas ROMs; si no coinciden, la app lo avisa.
+  * Retardo de entrada: 3-4 en la misma red, 5-7 por internet. Si la partida
+    se para a ratos ("Esperando a la red..."), sube el retardo.
+  * Por internet el anfitrion debe redirigir el puerto UDP (7845) en su router
+    o usar una red virtual (Tailscale, ZeroTier, Radmin VPN).
+  * Si aparece "DESINCRONIZACION", salid (Esc) y volved a crear la partida.
+
+
+CARPETAS
+--------
+  roms\         tus ROMs / ZIPs (ver arriba)
+  saves\        NVRAM de cada juego
+  screenshots\  capturas (F12)
+  data\         (opcional) juegos compilados por ti con tools/build_roms.sh
+
+
+COMO SE HA HECHO
+----------------
+  * Emulacion: nucleos de CPU de MAME (TMS34010, M6809, ADSP-2105), YM2151
+    con ymfm, y las placas Midway T-Unit y Wolf Unit sobre un marco minimo.
+  * Compilacion: ensamblador/enlazador compatible con TI GSPA/GSPLNK escrito
+    para el proyecto (tools/gspasm) y el LOAD2.EXE original de Midway
+    ejecutado con emu2. Ver README.md del codigo fuente.
+
+NBA JAM, NBA Hangtime y Midway son marcas de sus propietarios. Proyecto de
+aficionados sin animo de lucro, sin relacion con ellos.
