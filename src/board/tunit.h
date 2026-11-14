@@ -46,6 +46,9 @@ public:
 	std::string status() const override;
 	u32 pc() const override;
 	u32 state_hash() const override { return fnv1a(m_ram.data(), m_ram.size() * 2); }
+	std::vector<u8> *program_rom() override { return &m_roms.program; }
+	u16 peek16(u32 a) override { return read16(a & ~15u, 0xffff); }
+	void poke16(u32 a, u16 v) override { write16(a & ~15u, v, 0xffff); }
 	u32 fingerprint() const override
 	{
 		u32 h = fnv1a(m_roms.program.data(), m_roms.program.size());

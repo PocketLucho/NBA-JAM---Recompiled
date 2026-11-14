@@ -27,26 +27,38 @@ all: $(BUILD)/headless
 $(BUILD)/headless_w: tools/headless/headless_w.cpp $(BUILD)/libcore.a
 	$(CXX) $(CXXFLAGS) $(INC) $< $(BUILD)/libcore.a -o $@
 
+# ---------------- Lua 5.4 (mods) ----------------
+LUA_SRC = $(filter-out src/third_party/lua/lua.c src/third_party/lua/luac.c,$(wildcard src/third_party/lua/*.c))
+$(BUILD)/lua/%.o: src/third_party/lua/%.c
+	@mkdir -p $(dir $@)
+	$(CC) -O2 -std=gnu99 -c $< -o $@
+$(BUILD)/liblua.a: $(patsubst src/third_party/lua/%.c,$(BUILD)/lua/%.o,$(LUA_SRC))
+	ar rcs $@ $^
+
+$(BUILD)/modtest: tools/headless/modtest.cpp src/app/mods.cpp src/app/romload.cpp $(BUILD)/libcore.a $(BUILD)/liblua.a $(BUILD)/miniz.o
+	$(CXX) $(CXXFLAGS) $(INC) $(APP_INC) $< src/app/mods.cpp src/app/romload.cpp $(BUILD)/miniz.o $(BUILD)/libcore.a $(BUILD)/liblua.a -o $@
+
 # ---------------- application (Windows, llvm-mingw cross) ----------------
 SDL2W ?= /home/claude/deps/SDL2-2.30.9/x86_64-w64-mingw32
-APP_SRC = src/app/main.cpp src/app/games.cpp src/app/romload.cpp src/app/netplay.cpp src/app/gl_present.cpp src/third_party/miniz/miniz.c
+APP_SRC = src/app/main.cpp src/app/games.cpp src/app/romload.cpp src/app/netplay.cpp src/app/gl_present.cpp src/app/mods.cpp src/third_party/miniz/miniz.c
 WIN_OUT ?= dist/NBAJamRecomp
 win:
-	@mkdir -p $(WIN_OUT)
+	@mkdir -p $(WIN_OUT) build/win
 	x86_64-w64-mingw32-gcc -O2 -c src/third_party/miniz/miniz.c -o build/win/miniz.o
-	x86_64-w64-mingw32-g++ -std=c++20 -O2 -Isrc/emu -Isrc/mame -Isrc/board -Isrc/app -Isrc/third_party/miniz -I$(SDL2W)/include/SDL2 \
-	  src/app/main.cpp src/app/games.cpp src/app/romload.cpp src/app/netplay.cpp src/app/gl_present.cpp build/win/miniz.o build/win/libcore.a \
+	$(MAKE) BUILD=build/win CC=x86_64-w64-mingw32-gcc build/win/liblua.a
+	x86_64-w64-mingw32-g++ -std=c++20 -O2 -Isrc/emu -Isrc/mame -Isrc/board -Isrc/app -Isrc/third_party/miniz -Isrc/third_party/lua -I$(SDL2W)/include/SDL2 \
+	  src/app/main.cpp src/app/games.cpp src/app/romload.cpp src/app/netplay.cpp src/app/gl_present.cpp src/app/mods.cpp build/win/miniz.o build/win/libcore.a build/win/liblua.a \
 	  -L$(SDL2W)/lib -lmingw32 -lSDL2main -lSDL2 -mwindows -static -lwinmm -lsetupapi -loleaut32 -lole32 -limm32 -lversion -lgdi32 -luser32 -lshell32 -luuid -ladvapi32 -lcfgmgr32 -lws2_32 -lwinpthread \
 	  -o $(WIN_OUT)/NBAJamRecomp.exe
 
 # ---------------- application (Linux, for testing) ----------------
 SDL2L ?= /home/claude/deps/sdl2linux
-APP_INC = -Isrc/emu -Isrc/mame -Isrc/board -Isrc/app -Isrc/third_party/miniz
+APP_INC = -Isrc/emu -Isrc/mame -Isrc/board -Isrc/app -Isrc/third_party/miniz -Isrc/third_party/lua
 $(BUILD)/miniz.o: src/third_party/miniz/miniz.c
 	$(CC) -O2 -c $< -o $@
-linux-app: $(BUILD)/libcore.a $(BUILD)/miniz.o
-	$(CXX) $(CXXFLAGS) $(APP_INC) -I$(SDL2L)/include/SDL2 src/app/main.cpp src/app/games.cpp src/app/romload.cpp src/app/netplay.cpp src/app/gl_present.cpp \
-	  $(BUILD)/miniz.o $(BUILD)/libcore.a -L$(SDL2L)/lib -Wl,-Bstatic -lSDL2 -Wl,-Bdynamic -static-libstdc++ -static-libgcc -lm -ldl -lpthread -o $(BUILD)/NBAJamRecomp
+linux-app: $(BUILD)/libcore.a $(BUILD)/miniz.o $(BUILD)/liblua.a
+	$(CXX) $(CXXFLAGS) $(APP_INC) -I$(SDL2L)/include/SDL2 src/app/main.cpp src/app/games.cpp src/app/romload.cpp src/app/netplay.cpp src/app/gl_present.cpp src/app/mods.cpp \
+	  $(BUILD)/miniz.o $(BUILD)/libcore.a $(BUILD)/liblua.a -L$(SDL2L)/lib -Wl,-Bstatic -lSDL2 -Wl,-Bdynamic -static-libstdc++ -static-libgcc -lm -ldl -lpthread -o $(BUILD)/NBAJamRecomp
 $(BUILD)/cattest: tools/headless/cattest.cpp src/app/games.cpp src/app/romload.cpp $(BUILD)/libcore.a $(BUILD)/miniz.o
 	$(CXX) $(CXXFLAGS) $(APP_INC) $< src/app/games.cpp src/app/romload.cpp $(BUILD)/miniz.o $(BUILD)/libcore.a -o $@
 .PHONY: win linux-app

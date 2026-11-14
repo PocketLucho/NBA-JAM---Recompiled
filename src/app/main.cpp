@@ -6,6 +6,7 @@
 #include "miniz.h"
 #include "gl_present.h"
 #include "netplay.h"
+#include "mods.h"
 #include "shaders.h"
 
 #define SDL_MAIN_HANDLED
@@ -225,7 +226,7 @@ class app
 public:
 	int run();
 private:
-	enum class screen { menu, net_menu, net_lobby, game, about };
+	enum class screen { menu, net_menu, net_lobby, game, about, mods, mod_detail };
 
 	void open_window();
 	void present(const u32 *pixels, int w, int h, bool game);
@@ -233,6 +234,8 @@ private:
 	void net_menu_frame();
 	void net_lobby_frame();
 	void about_frame();
+	void mods_frame();
+	void mod_detail_frame();
 	bool game_frame();                 // returns true when an emulated frame was run
 	bool start_game(int index, bool net_client = false);
 	void stop_game();
@@ -267,6 +270,10 @@ private:
 	std::vector<std::string> m_why;
 	bool m_menu_up = false, m_menu_down = false, m_menu_left = false, m_menu_right = false, m_menu_ok = false, m_menu_back = false, m_menu_net = false;
 	std::vector<float> m_abuf;
+
+	// Lua mods
+	mod_manager m_mods;
+	int m_mod_sel = 0, m_mod_row = 0;
 
 	// netplay
 	netplay m_net;
@@ -500,6 +507,8 @@ bool app::start_game(int index, bool net_client)
 		if (read_whole_file(nv_path(g), nv)) m_mach->set_nvram(nv);
 		m_mach->set_dips(m_cfg.dips);
 	}
+	// Lua mods patch the ROM / hook frames; they also count in the netplay fingerprint
+	m_mods.start(g.id, *m_mach);
 	m_mach->reset();
 	m_cur_game = index;
 	m_paused = false;
@@ -508,6 +517,17 @@ bool app::start_game(int index, bool net_client)
 	SDL_SetWindowTitle(m_win, (std::string("NBA JAM Recomp - ") + g.title + (m_net_game ? tr("   [EN RED]", "   [ONLINE]") : tr("   [Esc: menu  F1: ayuda]", "   [Esc: menu  F1: help]"))).c_str());
 	SDL_ClearQueuedAudio(m_audio);
 	if (!m_net_game) message(tr("Pulsa F1 para ver los controles", "Press F1 to see the controls"), 3000);
+	if (m_mods.active_count() > 0)
+	{
+		std::string log;
+		for (const auto &l : m_mods.take_log()) log += (log.empty() ? "" : "  ") + l;
+		message(tr("Mods Lua activos: ", "Lua mods active: ") + std::to_string(m_mods.active_count()) + (log.empty() ? "" : "  " + log), 5000);
+	}
+	else
+	{
+		auto log = m_mods.take_log();       // errors of mods that failed to load
+		if (!log.empty()) message(log.front(), 6000);
+	}
 	return true;
 }
 
@@ -517,6 +537,7 @@ void app::stop_game()
 	bool save = !(m_net_game && m_net.role() == netplay::mode::client);
 	if (m_mach && m_cur_game >= 0 && save)
 		write_whole_file(nv_path(game_list()[size_t(m_cur_game)]), m_mach->nvram());
+	m_mods.stop();
 	m_mach.reset();
 	m_cur_game = -1;
 	if (m_net_game)
@@ -635,12 +656,20 @@ void app::menu_frame()
 {
 	const auto &list = game_list();
 	int ng = int(list.size());
-	int n = ng + 2;                       // + language, about
+	int n = ng + 3;                       // + Lua mods, language, about
+	const int i_mods = ng, i_lang = ng + 1, i_about = ng + 2;
 	if (m_menu_up) m_sel = (m_sel + n - 1) % n;
 	if (m_menu_down) m_sel = (m_sel + 1) % n;
 	if (m_menu_back) { m_quit = true; return; }
 	if (m_menu_net && m_sel < ng) { m_screen = screen::net_menu; m_net_sel = 0; m_local_ips = net_local_ipv4(); return; }
-	if (m_sel == ng && (m_menu_ok || m_menu_left || m_menu_right))
+	if (m_sel == i_mods && m_menu_ok)
+	{
+		m_mods.scan(path_join(m_base, "mods"), path_join(m_base, "mods.ini"));   // pick up new scripts
+		m_mod_sel = 0;
+		m_screen = screen::mods;
+		return;
+	}
+	if (m_sel == i_lang && (m_menu_ok || m_menu_left || m_menu_right))
 	{
 		g_lang_en = !g_lang_en;
 		m_cfg.lang = g_lang_en ? 1 : 0;
@@ -649,7 +678,7 @@ void app::menu_frame()
 	}
 	else if (m_menu_ok)
 	{
-		if (m_sel == ng + 1) { m_screen = screen::about; return; }
+		if (m_sel == i_about) { m_screen = screen::about; return; }
 		if (m_avail[size_t(m_sel)]) { if (start_game(m_sel)) return; }
 		else message(m_why[size_t(m_sel)], 6000);
 	}
@@ -676,17 +705,168 @@ void app::menu_frame()
 	}
 	{
 		int y = y0 + ng * 25 + 2;
-		bool sel = m_sel == ng;
+		bool sel = m_sel == i_mods;
+		if (sel) cv.blend(12, y - 3, cv.w - 24, 14, 0xffffa020, 90);
+		int on = 0;
+		for (const auto &md : m_mods.mods()) on += md.enabled && md.error.empty();
+		cv.text(20, y, std::string(tr("Mods Lua", "Lua mods")) + "  (" + std::to_string(on) + "/" + std::to_string(m_mods.mods().size()) + tr(" activos)", " on)"),
+		        sel ? 0xffffffff : 0xffc8d8ff);
+		y += 14;
+		sel = m_sel == i_lang;
 		if (sel) cv.blend(12, y - 3, cv.w - 24, 14, 0xffffa020, 90);
 		cv.text(20, y, std::string("Idioma / Language: ") + (g_lang_en ? "English" : "Castellano"), sel ? 0xffffffff : 0xffc8d8ff);
 		if (sel) cv.text(cv.w - 36, y, "< >", 0xffffffff);
 		y += 14;
-		sel = m_sel == ng + 1;
+		sel = m_sel == i_about;
 		if (sel) cv.blend(12, y - 3, cv.w - 24, 14, 0xffffa020, 90);
 		cv.text(20, y, tr("Acerca de NBA JAM Recomp", "About NBA JAM Recomp"), sel ? 0xffffffff : 0xffc8d8ff);
 	}
 	cv.text(8, cv.h - 21, tr("Enter/A: jugar   N/Y: juego en red", "Enter/A: play   N/Y: online game"), 0xffb0b0b0);
 	cv.text(8, cv.h - 11, tr("Esc: salir  F4: video  F11: pant. completa", "Esc: quit  F4: video  F11: fullscreen"), 0xffb0b0b0);
+	if (!m_message.empty() && SDL_GetTicks() < m_message_until) menu_message(cv, m_message);
+	present(cv.px.data(), cv.w, cv.h, false);
+	SDL_Delay(16);
+}
+
+// ---------------------------------------------------------------------------
+// Lua mods menu: list of scripts in mods/, then one page per mod with
+// on/off, "apply to: all games / selected games", a checkbox per game and the options
+// ---------------------------------------------------------------------------
+static std::string checkbox(bool on) { return on ? "[x] " : "[ ] "; }
+
+void app::mods_frame()
+{
+	auto &mods = m_mods.mods();
+	int n = int(mods.size());
+	if (m_menu_back) { m_mods.save(); m_screen = screen::menu; return; }
+	if (n > 0)
+	{
+		if (m_menu_up) m_mod_sel = (m_mod_sel + n - 1) % n;
+		if (m_menu_down) m_mod_sel = (m_mod_sel + 1) % n;
+		m_mod_sel = std::clamp(m_mod_sel, 0, n - 1);
+		mod_script &m = mods[size_t(m_mod_sel)];
+		if ((m_menu_left || m_menu_right) && m.error.empty()) { m.enabled = !m.enabled; m_mods.save(); }
+		if (m_menu_ok) { m_mod_row = 0; m_screen = screen::mod_detail; return; }
+	}
+
+	canvas cv(400, 300);
+	draw_background(cv);
+	std::string title = tr("MODS LUA", "LUA MODS");
+	cv.text(cv.w / 2 - cv.text_w(title, 2) / 2, 8, title, 0xffff8020, 2);
+	std::string sub = tr("Scripts .lua de la carpeta mods/", ".lua scripts in the mods/ folder");
+	cv.text(cv.w / 2 - cv.text_w(sub) / 2, 28, sub, 0xffc0c0c0);
+	if (n == 0)
+		cv.text_wrap(20, 60, tr("No hay mods. Copia scripts .lua en la carpeta mods/ junto al programa.",
+		                        "No mods found. Put .lua scripts in the mods/ folder next to the program."), 0xffffe080);
+	// scroll so the selection stays visible
+	const int rows = 9, y0 = 46;
+	int first = std::clamp(m_mod_sel - rows + 1, 0, std::max(0, n - rows));
+	for (int i = first; i < n && i < first + rows; i++)
+	{
+		const mod_script &m = mods[size_t(i)];
+		int y = y0 + (i - first) * 24;
+		bool sel = i == m_mod_sel;
+		if (sel) cv.blend(12, y - 3, cv.w - 24, 23, 0xffffa020, 90);
+		u32 col = !m.error.empty() ? 0xffff6060 : sel ? 0xffffffff : 0xffffe080;
+		cv.text(20, y, checkbox(m.enabled && m.error.empty()) + m.name.substr(0, 30), col);
+		std::string scope = !m.error.empty() ? tr("ERROR", "ERROR")
+		                  : m.all_games ? tr("todos los juegos", "all games")
+		                  : std::to_string(m.games.size()) + tr(" juego(s)", " game(s)");
+		cv.text(cv.w - 20 - cv.text_w(scope), y, scope, m.error.empty() ? 0xffc0a0ff : 0xffff6060, 1, false);
+		std::string desc = m.error.empty() ? m.description : m.error;
+		cv.text(52, y + 10, desc.substr(0, 41), 0xffa0c8ff, 1, false);
+	}
+	cv.text(8, cv.h - 21, tr("Izq/Der: activar   Enter: juegos y opciones", "Left/Right: on/off   Enter: games & options"), 0xffb0b0b0);
+	cv.text(8, cv.h - 11, tr("Esc: volver (se guarda en mods.ini)", "Esc: back (saved to mods.ini)"), 0xffb0b0b0);
+	if (!m_message.empty() && SDL_GetTicks() < m_message_until) menu_message(cv, m_message);
+	present(cv.px.data(), cv.w, cv.h, false);
+	SDL_Delay(16);
+}
+
+void app::mod_detail_frame()
+{
+	auto &mods = m_mods.mods();
+	if (m_mod_sel < 0 || m_mod_sel >= int(mods.size())) { m_screen = screen::mods; return; }
+	mod_script &m = mods[size_t(m_mod_sel)];
+	const auto &games = game_list();
+	int nopt = int(m.options.size()), ng = int(games.size());
+	// rows: 0 enabled, 1 apply-to, 2.. options, then one checkbox per game
+	int n = 2 + nopt + ng;
+	if (m_menu_back) { m_mods.save(); m_screen = screen::mods; return; }
+	if (m_menu_up) m_mod_row = (m_mod_row + n - 1) % n;
+	if (m_menu_down) m_mod_row = (m_mod_row + 1) % n;
+	bool toggle = m_menu_ok || m_menu_left || m_menu_right;
+	int dir = m_menu_left ? -1 : 1;
+	if (toggle && m.error.empty())
+	{
+		if (m_mod_row == 0) m.enabled = !m.enabled;
+		else if (m_mod_row == 1)
+		{
+			m.all_games = !m.all_games;
+			if (!m.all_games && m.games.empty())          // start from every supported game
+				for (const auto &g : games) if (m.supports(g.id)) m.games.push_back(g.id);
+		}
+		else if (m_mod_row < 2 + nopt)
+		{
+			const mod_option &o = m.options[size_t(m_mod_row - 2)];
+			int cnt = int(o.values.size());
+			m.opt[o.id] = (m.option_index(o) + dir + cnt) % cnt;
+		}
+		else
+		{
+			const game_info &g = games[size_t(m_mod_row - 2 - nopt)];
+			if (m.supports(g.id))
+			{
+				// ticking a game switches "apply to" to the selected games
+				if (m.all_games)
+				{
+					m.all_games = false;
+					m.games.clear();
+					for (const auto &h : games) if (m.supports(h.id)) m.games.push_back(h.id);
+				}
+				m.set_game(g.id, !m.game_checked(g.id));
+			}
+			else message(tr("Este mod no es compatible con ese juego", "This mod does not support that game"), 2000);
+		}
+		m_mods.save();
+	}
+
+	canvas cv(400, 300);
+	draw_background(cv);
+	cv.text(cv.w / 2 - cv.text_w(m.name.substr(0, 24), 2) / 2, 8, m.name.substr(0, 24), 0xffff8020, 2);
+	int y = cv.text_wrap(12, 28, m.error.empty() ? m.description : "ERROR: " + m.error, m.error.empty() ? 0xffd8e0ff : 0xffff6060);
+	y = std::max(y + 4, 50);
+	auto row = [&](int i, const std::string &label, const std::string &value, bool active)
+	{
+		bool sel = i == m_mod_row;
+		if (sel) cv.blend(12, y - 3, cv.w - 24, 14, 0xffffa020, 90);
+		cv.text(20, y, label, !active ? 0xff707070 : sel ? 0xffffffff : 0xffc8d8ff);
+		if (!value.empty())
+		{
+			std::string v = sel ? "< " + value + " >" : value;
+			cv.text(cv.w - 20 - cv.text_w(v), y, v, active ? 0xffffe080 : 0xff707070);
+		}
+		y += 14;
+	};
+	row(0, checkbox(m.enabled) + tr("Mod activado", "Mod enabled"), "", true);
+	row(1, tr("Aplicar a:", "Apply to:"), m.all_games ? tr("Todos los juegos", "All games") : tr("Juegos elegidos", "Selected games"), m.enabled);
+	for (int i = 0; i < nopt; i++)
+	{
+		const mod_option &o = m.options[size_t(i)];
+		row(2 + i, o.label.substr(0, 26), o.value_text(m.option_index(o)), m.enabled);
+	}
+	y += 4;
+	cv.text(20, y, tr("Juegos:", "Games:"), 0xffc0c0c0);
+	y += 12;
+	for (int i = 0; i < ng; i++)
+	{
+		const game_info &g = games[size_t(i)];
+		bool sup = m.supports(g.id);
+		bool on = sup && (m.all_games || m.game_checked(g.id));
+		row(2 + nopt + i, checkbox(on) + g.title, sup ? "" : tr("no compatible", "not supported"), m.enabled && sup);
+	}
+	cv.text(8, cv.h - 21, tr("Enter / Izq / Der: cambiar", "Enter / Left / Right: change"), 0xffb0b0b0);
+	cv.text(8, cv.h - 11, tr("Esc: volver", "Esc: back"), 0xffb0b0b0);
 	if (!m_message.empty() && SDL_GetTicks() < m_message_until) menu_message(cv, m_message);
 	present(cv.px.data(), cv.w, cv.h, false);
 	SDL_Delay(16);
@@ -842,7 +1022,7 @@ void app::net_lobby_frame()
 		{
 			m_net_game = true;
 			if (!start_game(idx, true)) why = tr("no se pudo cargar el juego", "the game could not be loaded");
-			else if (m_mach->fingerprint() != m_net.start_fingerprint()) why = tr("tus ROMs no coinciden con las del anfitrion", "your ROMs are not the same as the host's");
+			else if (m_mach->fingerprint() != m_net.start_fingerprint()) why = tr("tus ROMs (o mods Lua) no coinciden con las del anfitrion", "your ROMs (or Lua mods) are not the same as the host's");
 		}
 		if (!why.empty())
 		{
@@ -918,6 +1098,7 @@ bool app::game_frame()
 			cabinet_inputs in = m_net.frame_inputs(local.p[0]);
 			m_mach->set_inputs(in);
 			m_mach->run_frame();
+			m_mods.frame();
 			m_net.frame_done(m_mach->state_hash());
 			ran = true;
 		}
@@ -926,8 +1107,10 @@ bool app::game_frame()
 	{
 		m_mach->set_inputs(gather_inputs());
 		m_mach->run_frame();
+		m_mods.frame();
 		ran = true;
 	}
+	for (const auto &l : m_mods.take_log()) message(l, 4000);
 	if (ran)
 	{
 		m_abuf.clear();
@@ -974,6 +1157,7 @@ int app::run()
 	}
 	else g_lang_en = m_cfg.lang == 1;
 	m_cat = std::make_unique<game_catalog>(m_base);
+	m_mods.scan(path_join(m_base, "mods"), path_join(m_base, "mods.ini"));
 
 	open_window();
 	SDL_StopTextInput();
@@ -1001,6 +1185,8 @@ int app::run()
 			case screen::net_menu: net_menu_frame(); next = clock::now(); continue;
 			case screen::net_lobby: net_lobby_frame(); next = clock::now(); continue;
 			case screen::about: about_frame(); next = clock::now(); continue;
+			case screen::mods: mods_frame(); next = clock::now(); continue;
+			case screen::mod_detail: mod_detail_frame(); next = clock::now(); continue;
 			case screen::game: break;
 		}
 		bool ran = game_frame();
