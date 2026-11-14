@@ -48,7 +48,8 @@ a `data/<juego>/` y se usan si no se encuentran las ROMs.
   entero (pixel perfect); 4:3, 16:9, 16:10 o llenar
 * Juego en red hasta 4 jugadores: lockstep por UDP, con huella de ROMs y deteccion de
   desincronizacion
-* Teclado (4 jugadores) y mandos, NVRAM por juego, capturas de pantalla (F12)
+* Teclado (4 jugadores) y mandos con controles reasignables: perfiles de mando por jugador para todos los juegos, importables/exportables como `.ini` (menu principal -> Controles)
+* NVRAM por juego, capturas de pantalla (F12)
 
 ## Compilar la aplicacion
 

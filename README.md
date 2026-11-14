@@ -46,7 +46,8 @@ for the per-game list. Games built from source with `tools/build_roms.sh` (below
   (pixel perfect) scaling; 4:3, 16:9, 16:10 or fill
 * Online play for up to 4 players: lockstep over UDP, with ROM fingerprint and
   desync detection
-* Keyboard (4 players) and gamepads, per-game NVRAM, screenshots (F12)
+* Keyboard (4 players) and gamepads with remappable controls: per-player controller profiles shared by all games, importable/exportable as `.ini` files (main menu -> Controls)
+* Per-game NVRAM, screenshots (F12)
 
 ## Repository layout
 

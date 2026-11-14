@@ -55,7 +55,16 @@ CONTROLS (keyboard)
   Player 4    I   K   J   L           H     ;     U      4      8
 
   Gamepads: each pad controls one player (A shoot, B pass, X/trigger turbo,
-  Start, Back = coin).
+  Start, Back = coin) by default.
+
+  Remapping: main menu -> "Controls". Pick a player, pick or create a profile,
+  select an action and press Enter/A, then the pad button or stick direction
+  (press an already bound input again to remove it; Del/X clears the action).
+  Profiles work in every game. Each player (P1-P4) uses its own profile.
+  Profiles are saved in controller_profiles/. "Export profile" writes it to
+  controller_profiles/export/ (path copied to the clipboard); to import, copy
+  .ini profiles to controller_profiles/import/ and choose "Import profiles",
+  or drop the file onto the window.
 
   F1   on-screen help                F2  TEST switch (service menu)
   F3   reset
