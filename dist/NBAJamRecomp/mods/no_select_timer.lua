@@ -4,14 +4,16 @@
 --     movi  30*TSEC,a10              ; 09CA <ticks>
 --     CREATE CNTDWN_PID,timeout      ; 09C1 <pid>  09E7 <proc>  0D5F <GETPRC>
 -- "timeout" shows 9..0 on screen and then sets force_selection, which picks a team for
--- you. The initials entry before it uses the same routine with 25*TSEC.
+-- you. The initials entry before it uses the same routine with 25*TSEC. (Hangtime: 28*TSEC
+-- for team select, 25*TSEC for initials; its short 5 and 9 second countdowns on the
+-- "winner stays" and trivia screens are left alone.)
 -- We point those CREATE calls at the process killer (SUCIDE, the target of DIE), so the
 -- countdown process ends the moment it starts: no clock, no forced choice.
 
 mod = {
   name = "No team select timer",
   description = "Removes the countdown on the team select screen, so you can take your time. Optionally the initials entry timer too.",
-  games = { "nbajam", "nbajamte", "nbajamse" },
+  games = { "nbajam", "nbajamte", "nbajamse", "nbahangt", "nbamht" },
   options = {
     { id = "initials", label = "Initials entry timer", values = { 0, 1 }, labels = { "Keep", "Remove" }, default = 0 },
   },
@@ -39,8 +41,8 @@ function on_load()
   for _, a in ipairs(nba.rom_find({ 0x09CA, -1, 0x09C1, -1, 0x09E7, -1, -1, 0x0D5F })) do
     local ticks = nba.rom_read16(a + W)
     local info = inspect(nba.rom_read32(a + 5 * W))
-    -- countdowns of at least 5 seconds (53 ticks a second); shorter ones are other screens
-    if info and ticks >= 5 * 53 then
+    -- countdowns of at least 20 seconds (53 ticks a second); shorter ones are other screens
+    if info and ticks >= 20 * 53 then
       callers[#callers + 1] = { addr = a, ticks = ticks, info = info }
       if ticks > max_ticks then max_ticks = ticks end
     end

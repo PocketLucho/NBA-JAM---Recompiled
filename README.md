@@ -61,16 +61,16 @@ Included:
 
 | Script | What it does |
 |---|---|
-| `quarter_length.lua` | quarter (and overtime) length from 0:30 to 9:00; the original is 3:00 |
+| `quarter_length.lua` | quarter (and overtime) length from 0:30 to 12:00; the original is 3:00. The scoreboard has one minutes digit, so above 9:00 it reads 9 until 9 minutes are left (the time played is exact) |
 | `no_select_timer.lua` | removes the countdown on the team select screen (option: the initials entry one too) |
 
 Both find the code they change by its instruction pattern, so they work on any revision
-that shares it. They were checked on T.E. rev 4.0 and T.E. SE rev 5.02 with
-`build/linux/modtest` (`make build/linux/modtest`): with `quarter_length` set to 1:30 every
-quarter starts at 1:30, and with `no_select_timer` the select screen waits for the players
-instead of picking for them. NBA JAM (1993) has no public source and is untested; if the
-pattern is not in its ROM the mod says so on screen and changes nothing. Hangtime uses
-different code and is not supported.
+that shares it. They were checked on T.E. rev 4.0, T.E. SE rev 5.02, Hangtime L1.3 and Maximum Hangtime 1.3
+with `build/linux/modtest` (`make build/linux/modtest`): with `quarter_length` set to 1:30
+every quarter starts at 1:30 (12:00 checked on T.E.), and with `no_select_timer` the select
+screen waits for the players instead of picking for them. Hangtime's shorter countdowns
+("winner stays", trivia) are left alone. NBA JAM (1993) has no public source and is
+untested; if the pattern is not in its ROM the mod says so on screen and changes nothing.
 
 Online games: both players need the same mods, since they change the program and are
 part of the ROM fingerprint. Writing your own: see `dist/NBAJamRecomp/mods/README.txt`.
