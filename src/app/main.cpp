@@ -18,6 +18,7 @@
 #include <cstdio>
 #include <cstring>
 #include <fstream>
+#include <array>
 #include <map>
 #include <sstream>
 #include <string>
@@ -50,6 +51,7 @@ struct config
 	int lang = -1;                // -1 = system language, 0 = Spanish, 1 = English
 	std::string net_host;
 	std::string pad_profile[4] = { "Default", "Default", "Default", "Default" };   // controller profile of each player
+	std::map<std::string, std::array<std::string, 4>> game_profiles;   // per-game override ("" = use pad_profile)
 	dip_settings dips;
 	key_map keys[4] = {
 		{ SDL_SCANCODE_UP, SDL_SCANCODE_DOWN, SDL_SCANCODE_LEFT, SDL_SCANCODE_RIGHT, SDL_SCANCODE_Z, SDL_SCANCODE_X, SDL_SCANCODE_C, SDL_SCANCODE_1, SDL_SCANCODE_5 },
@@ -87,6 +89,10 @@ static void save_config(const std::string &path, config &c)
 	  << "\ncountry=" << c.dips.country << "\nvideo_clips=" << c.dips.video_clips
 	  << "\n\n[controllers]\n# profile of each player's pad (files in controller_profiles/, edit them in the Controls menu)\n";
 	for (int p = 0; p < 4; p++) f << "p" << (p + 1) << "_profile=" << c.pad_profile[p] << "\n";
+	f << "# per-game profiles: <game>.p1_profile=... (games: nbajam nbajamte nbajamse nbahangt nbamht)\n";
+	for (auto &g : c.game_profiles)
+		for (int p = 0; p < 4; p++)
+			if (!g.second[size_t(p)].empty()) f << g.first << ".p" << (p + 1) << "_profile=" << g.second[size_t(p)] << "\n";
 	f << "\n[keys]\n"
 	  << "# nombres de tecla SDL (https://wiki.libsdl.org/SDL2/SDL_Scancode)\n";
 	for (int p = 0; p < 4; p++)
@@ -124,6 +130,10 @@ static void load_config(const std::string &path, config &c)
 		else if (k == "four_players") c.dips.four_players = atoi(v.c_str()) != 0;
 		else if (k == "country") c.dips.country = std::clamp(atoi(v.c_str()), 0, 2);
 		else if (k == "video_clips") c.dips.video_clips = atoi(v.c_str()) != 0;
+		else if (k.size() > 11 && k.substr(k.size() - 11, 2) == ".p" && k.substr(k.size() - 8) == "_profile" && k[k.size() - 9] >= '1' && k[k.size() - 9] <= '4')
+		{
+			if (valid_profile_name(v)) c.game_profiles[k.substr(0, k.size() - 11)][size_t(k[k.size() - 9] - '1')] = v;
+		}
 		else if (k.size() == 10 && k[0] == 'p' && k.substr(2) == "_profile" && k[1] >= '1' && k[1] <= '4') { if (valid_profile_name(v)) c.pad_profile[k[1] - '1'] = v; }
 		else if (k.size() > 3 && k[0] == 'p' && k[2] == '_')
 		{
@@ -240,6 +250,7 @@ private:
 	void net_lobby_frame();
 	void about_frame();
 	void controls_frame();
+	void apply_setup(const import_result &r);
 	bool game_frame();                 // returns true when an emulated frame was run
 	bool start_game(int index, bool net_client = false);
 	void stop_game();
@@ -263,7 +274,23 @@ private:
 	SDL_AudioDeviceID m_audio = 0;
 	std::vector<SDL_GameController *> m_pads;
 	profile_store m_profiles;
-	int m_ctl_player = 0, m_ctl_sel = 0;
+	int m_ctl_player = 0, m_ctl_sel = 0, m_ctl_game = -1, m_ctl_scroll = 0;   // m_ctl_game: -1 = all games
+	// profile a player's pad uses in a game (-1 = the all-games choice)
+	std::string &profile_slot(int game, int player)
+	{
+		if (game < 0) return m_cfg.pad_profile[player];
+		return m_cfg.game_profiles[game_list()[size_t(game)].id][size_t(player)];
+	}
+	const pad_profile &active_profile(int player)
+	{
+		const std::string *n = &m_cfg.pad_profile[player];
+		if (m_cur_game >= 0)
+		{
+			auto it = m_cfg.game_profiles.find(game_list()[size_t(m_cur_game)].id);
+			if (it != m_cfg.game_profiles.end() && !it->second[size_t(player)].empty() && m_profiles.find(it->second[size_t(player)]) >= 0) n = &it->second[size_t(player)];
+		}
+		return m_profiles.get(*n);
+	}
 	int m_capture = -1;                // action waiting for a pad press, -1 = none
 	u32 m_capture_until = 0;
 	bool m_captured = false;
@@ -390,8 +417,10 @@ void app::poll_events()
 				if (e.drop.file)
 				{
 					std::string m;
-					bool ok = m_profiles.import_file(e.drop.file, m);
-					message(ok ? tr("Perfil importado: ", "Profile imported: ") + m : tr("Importar: ", "Import: ") + m, 4000);
+					import_result r;
+					bool ok = m_profiles.import_file(e.drop.file, m, r);
+					if (ok && r.setup) apply_setup(r);
+					message(ok ? tr("Importado: ", "Imported: ") + m + (r.setup ? tr(" (configuracion aplicada)", " (setup applied)") : "") : tr("Importar: ", "Import: ") + m, 5000);
 					SDL_free(e.drop.file);
 				}
 				break;
@@ -504,11 +533,11 @@ cabinet_inputs app::gather_inputs()
 	for (size_t i = 0; i < m_pads.size() && i < 4; i++)
 	{
 		SDL_GameController *c = m_pads[i];
-		const pad_profile &pp = m_profiles.get(m_cfg.pad_profile[i]);
+		unsigned m = active_profile(int(i)).buttons(c);      // shortcuts already expanded to cabinet buttons
 		auto &q = in.p[i];
-		q.up |= pp.pressed(c, 0); q.down |= pp.pressed(c, 1); q.left |= pp.pressed(c, 2); q.right |= pp.pressed(c, 3);
-		q.shoot |= pp.pressed(c, 4); q.pass |= pp.pressed(c, 5); q.turbo |= pp.pressed(c, 6);
-		q.start |= pp.pressed(c, 7); q.coin |= pp.pressed(c, 8);
+		auto on = [&](int a) { return ((m >> a) & 1u) != 0; };
+		q.up |= on(A_UP); q.down |= on(A_DOWN); q.left |= on(A_LEFT); q.right |= on(A_RIGHT);
+		q.shoot |= on(A_SHOOT); q.pass |= on(A_PASS); q.turbo |= on(A_TURBO); q.start |= on(A_START); q.coin |= on(A_COIN);
 	}
 	in.test = m_test;
 	in.service = ks[SDL_SCANCODE_9] != 0;
@@ -579,7 +608,7 @@ void app::draw_overlay(canvas &cv)
 		line(tr("J3 num8462  n0 / n. / nIntro 3     7", "P3 num8462  n0 / n. / nEnter 3     7"));
 		line(tr("J4 IJKL     H / ; / U         4     8", "P4 IJKL     H / ; / U         4     8"));
 		{
-			const pad_profile &pp = m_profiles.get(m_cfg.pad_profile[0]);
+			const pad_profile &pp = active_profile(0);
 			line(tr("Mando J1 (", "Pad P1 (") + pp.name + "): " + pp.action_text(4) + tr(" tiro ", " shoot ") + pp.action_text(5) + tr(" pase", " pass"));
 		}
 		y += 3;
@@ -770,27 +799,45 @@ void app::about_frame()
 	SDL_Delay(16);
 }
 
-// Controls screen: pick a profile for each player, remap its pad inputs, and
-// create / delete / export / import profiles. Profiles apply to every game.
+// applies a game setup bundle (from an import): the profile of each player for one game or all games
+void app::apply_setup(const import_result &r)
+{
+	int gi = -1;
+	if (!r.game.empty())
+		for (size_t i = 0; i < game_list().size(); i++) if (r.game == game_list()[i].id) gi = int(i);
+	if (!r.game.empty() && gi < 0) return;            // unknown game: keep just the profiles
+	for (int p = 0; p < 4; p++)
+		if (gi >= 0 || !r.players[p].empty()) profile_slot(gi, p) = r.players[p];
+	save_config(m_cfgpath, m_cfg);
+}
+
+// Controls screen: choose all games or one game, pick a profile for each player,
+// remap its pad inputs and shortcuts, and create / delete / export / import profiles.
 void app::controls_frame()
 {
-	static const char *act_es[kNumActions] = { "Arriba", "Abajo", "Izquierda", "Derecha", "Tiro", "Pase", "Turbo", "Start", "Moneda" };
-	static const char *act_en[kNumActions] = { "Up", "Down", "Left", "Right", "Shoot", "Pass", "Turbo", "Start", "Coin" };
-	enum { R_PLAYER, R_PROFILE, R_ACT0, R_DEAD = R_ACT0 + kNumActions, R_NEW, R_RESET, R_DELETE, R_EXPORT, R_IMPORT, R_BACK, R_COUNT };
+	static const char *act_es[kNumActions] = { "Arriba", "Abajo", "Izquierda", "Derecha", "Tiro", "Pase", "Turbo", "Start", "Moneda",
+	                                           "Empujon", "Tiro turbo", "Atajo 1", "Atajo 2" };
+	static const char *act_en[kNumActions] = { "Up", "Down", "Left", "Right", "Shoot", "Pass", "Turbo", "Start", "Coin",
+	                                           "Shove", "Turbo shot", "Shortcut 1", "Shortcut 2" };
+	// button sets a custom shortcut can cycle through (Left/Right); any set can be written in the file
+	static const unsigned kMasks[] = { 0, 1u << A_SHOOT, 1u << A_PASS, 1u << A_TURBO, (1u << A_SHOOT) | (1u << A_PASS),
+	                                   (1u << A_TURBO) | (1u << A_SHOOT), (1u << A_TURBO) | (1u << A_PASS),
+	                                   (1u << A_TURBO) | (1u << A_SHOOT) | (1u << A_PASS), (1u << A_START) | (1u << A_COIN) };
+	const int nmask = int(sizeof(kMasks) / sizeof(kMasks[0]));
+	enum { R_GAME, R_PLAYER, R_PROFILE, R_ACT0, R_DEAD = R_ACT0 + kNumActions, R_NEW, R_RESET, R_DELETE, R_EXPORT, R_EXPORT_SETUP, R_IMPORT, R_BACK, R_COUNT };
 	auto &list = m_profiles.list();
-	std::string &cur_name = m_cfg.pad_profile[m_ctl_player];
-	int pi = m_profiles.find(cur_name);
-	if (pi < 0) { cur_name = "Default"; pi = std::max(0, m_profiles.find("Default")); }
+	const int ng = int(game_list().size());
+	if (m_ctl_game >= ng) m_ctl_game = -1;
+	std::string &slot = profile_slot(m_ctl_game, m_ctl_player);
+	if (!slot.empty() && m_profiles.find(slot) < 0) slot = m_ctl_game < 0 ? "Default" : "";
+	bool inherit = slot.empty();                       // per-game slot that follows the all-games choice
+	const std::string &shown = inherit ? m_cfg.pad_profile[m_ctl_player] : slot;
+	int pi = std::max(0, m_profiles.find(shown));
 	pad_profile &prof = list[size_t(pi)];
 
 	if (m_capture >= 0)
 	{
-		if (m_captured)
-		{
-			prof.add(m_capture, m_capture_in);
-			m_profiles.save(prof);
-			m_capture = -1;
-		}
+		if (m_captured) { prof.add(m_capture, m_capture_in); m_profiles.save(prof); m_capture = -1; }
 		else if (m_menu_back || SDL_GetTicks() > m_capture_until) m_capture = -1;
 	}
 	else if (m_editing)
@@ -807,7 +854,7 @@ void app::controls_frame()
 			{
 				pad_profile np = prof;          // the new profile starts as a copy of the current one
 				np.name = nm;
-				if (m_profiles.save(np)) { cur_name = nm; save_config(m_cfgpath, m_cfg); message(tr("Perfil creado: ", "Profile created: ") + nm); }
+				if (m_profiles.save(np)) { profile_slot(m_ctl_game, m_ctl_player) = nm; save_config(m_cfgpath, m_cfg); message(tr("Perfil creado: ", "Profile created: ") + nm); }
 			}
 			return;
 		}
@@ -819,12 +866,17 @@ void app::controls_frame()
 		if (m_menu_up) m_ctl_sel = (m_ctl_sel + R_COUNT - 1) % R_COUNT;
 		if (m_menu_down) m_ctl_sel = (m_ctl_sel + 1) % R_COUNT;
 		int d = m_menu_right ? 1 : m_menu_left ? -1 : 0;
+		if (m_ctl_sel == R_GAME && d) m_ctl_game = (m_ctl_game + 1 + ng + 1 + d) % (ng + 1) - 1;
 		if (m_ctl_sel == R_PLAYER && d) m_ctl_player = (m_ctl_player + 4 + d) % 4;
 		if (m_ctl_sel == R_PROFILE && (d || m_menu_ok))
 		{
-			int n = int(list.size());
-			cur_name = list[size_t((pi + n + (d ? d : 1)) % n)].name;
+			// choices: the profiles, plus "same as all games" when a single game is selected
+			int n = int(list.size()), extra = m_ctl_game >= 0 ? 1 : 0;
+			int cur = inherit ? -1 : m_profiles.find(slot);
+			int c = (cur + extra + (d ? d : 1) + n + extra) % (n + extra) - extra;
+			profile_slot(m_ctl_game, m_ctl_player) = c < 0 ? std::string() : list[size_t(c)].name;
 			save_config(m_cfgpath, m_cfg);
+			return;
 		}
 		if (m_ctl_sel == R_DEAD && d) { prof.deadzone = std::clamp(prof.deadzone + d * 1600, 1600, 32000); m_profiles.save(prof); }
 		if (m_ctl_sel >= R_ACT0 && m_ctl_sel < R_DEAD)
@@ -832,6 +884,14 @@ void app::controls_frame()
 			int a = m_ctl_sel - R_ACT0;
 			if (m_menu_ok) { m_capture = a; m_captured = false; m_capture_until = SDL_GetTicks() + 5000; }
 			if (m_menu_clear) { prof.bind[a].clear(); m_profiles.save(prof); }
+			if (a >= A_CUSTOM1 && d)
+			{
+				unsigned &cm = prof.combo[a - kNumButtons];
+				int k = 0;
+				while (k < nmask && kMasks[k] != cm) k++;
+				cm = kMasks[(k >= nmask ? 0 : k + nmask + d) % nmask];
+				m_profiles.save(prof);
+			}
 		}
 		if (m_menu_ok)
 		{
@@ -853,24 +913,38 @@ void app::controls_frame()
 					std::string nm = prof.name;
 					if (!m_profiles.remove(nm)) { message(tr("El perfil Default no se puede borrar", "The Default profile cannot be deleted")); break; }
 					for (auto &p : m_cfg.pad_profile) if (p == nm) p = "Default";
+					for (auto &g : m_cfg.game_profiles) for (auto &p : g.second) if (p == nm) p.clear();
 					save_config(m_cfgpath, m_cfg);
 					message(tr("Perfil borrado: ", "Profile deleted: ") + nm);
 					return;
 				}
 				case R_EXPORT:
-					if (m_profiles.export_profile(prof, path))
+				case R_EXPORT_SETUP:
+				{
+					bool ok;
+					if (m_ctl_sel == R_EXPORT) ok = m_profiles.export_profile(prof, path);
+					else
+					{
+						std::string pl[4];
+						for (int p = 0; p < 4; p++) pl[p] = profile_slot(m_ctl_game, p);
+						ok = m_profiles.export_setup(m_ctl_game < 0 ? std::string() : game_list()[size_t(m_ctl_game)].id, pl, path);
+					}
+					if (ok)
 					{
 						SDL_SetClipboardText(path.c_str());
 						message(tr("Exportado (ruta copiada): ", "Exported (path copied): ") + path.substr(m_base.size()), 6000);
 					}
 					else message(tr("No se pudo exportar ", "Could not export ") + path, 5000);
 					break;
+				}
 				case R_IMPORT:
 				{
-					int n = m_profiles.import_folder(m);
+					std::vector<import_result> setups;
+					int n = m_profiles.import_folder(m, setups);
+					for (auto &r : setups) apply_setup(r);
 					if (m.empty()) message(tr("Copia perfiles .ini en controller_profiles/import o arrastralos a la ventana",
 					                          "Copy .ini profiles to controller_profiles/import or drop them on the window"), 6000);
-					else message(std::to_string(n) + tr(" importado(s): ", " imported: ") + m, 6000);
+					else message(std::to_string(n) + tr(" fichero(s) importado(s): ", " file(s) imported: ") + m, 6000);
 					return;
 				}
 				case R_BACK: save_config(m_cfgpath, m_cfg); m_screen = screen::menu; return;
@@ -881,40 +955,59 @@ void app::controls_frame()
 	canvas cv(400, 300);
 	draw_background(cv);
 	std::string head = tr("CONTROLES", "CONTROLS");
-	cv.text(cv.w / 2 - cv.text_w(head, 2) / 2, 6, head, 0xffff8020, 2);
+	cv.text(cv.w / 2 - cv.text_w(head, 2) / 2, 4, head, 0xffff8020, 2);
 	SDL_GameController *pad = size_t(m_ctl_player) < m_pads.size() ? m_pads[size_t(m_ctl_player)] : nullptr;
 	const char *pn = pad ? SDL_GameControllerName(pad) : nullptr;
 	std::string padline = tr("Mando: ", "Pad: ") + (pad ? std::string(pn ? pn : "?") : std::string(tr("(no conectado)", "(not connected)")));
-	cv.text(16, 26, padline.substr(0, 46), pad ? 0xff80ff80 : 0xff909090, 1, false);
-	auto row = [&](int r, int y, const std::string &label, const std::string &value, u32 vcol = 0xffffe080) {
-		bool sel = r == m_ctl_sel;
-		if (sel) cv.blend(10, y - 2, cv.w - 20, 11, 0xffffa020, 90);
-		cv.text(16, y, label, sel ? 0xffffffff : 0xffc8d8ff, 1, false);
-		if (!value.empty()) cv.text(130, y, value.substr(0, 33), vcol, 1, false);
-	};
-	int y = 38;
-	row(R_PLAYER, y, tr("Jugador", "Player"), "< " + std::string(tr("J", "P")) + std::to_string(m_ctl_player + 1) + " >"); y += 12;
-	row(R_PROFILE, y, tr("Perfil", "Profile"), "< " + prof.name + " >"); y += 14;
-	for (int a = 0; a < kNumActions; a++, y += 11)
+	cv.text(16, 23, padline.substr(0, 46), pad ? 0xff80ff80 : 0xff909090, 1, false);
+
+	// rows, scrolled so the selection stays visible
+	struct line_t { std::string label, value; u32 vcol; };
+	std::vector<line_t> rows(R_COUNT);
+	rows[R_GAME] = { tr("Juego", "Game"), "< " + std::string(m_ctl_game < 0 ? tr("Todos los juegos", "All games") : game_list()[size_t(m_ctl_game)].title) + " >", 0xffffe080 };
+	rows[R_PLAYER] = { tr("Jugador", "Player"), "< " + std::string(tr("J", "P")) + std::to_string(m_ctl_player + 1) + " >", 0xffffe080 };
+	rows[R_PROFILE] = { tr("Perfil", "Profile"), "< " + (inherit ? std::string(tr("como todos: ", "as all: ")) + prof.name : prof.name) + " >", 0xffffe080 };
+	unsigned held = pad ? prof.buttons(pad) : 0;
+	for (int a = 0; a < kNumActions; a++)
 	{
+		std::string label = (g_lang_en ? act_en : act_es)[a];
 		bool live = pad && prof.pressed(pad, a);
+		if (a < kNumButtons && ((held >> a) & 1u)) live = true;
 		std::string v = (m_capture == a) ? std::string(tr("pulsa un boton/eje... (", "press a button/axis... (")) + std::to_string(int(m_capture_until - SDL_GetTicks()) / 1000 + 1) + ")"
 		                                 : prof.action_text(a);
-		row(R_ACT0 + a, y, (g_lang_en ? act_en : act_es)[a], v, m_capture == a ? 0xffffff40 : live ? 0xff60ff60 : 0xffffe080);
+		if (a >= kNumButtons && m_capture != a) v = "[" + combo_mask_text(prof.combo[a - kNumButtons]) + "] " + v;
+		rows[size_t(R_ACT0 + a)] = { label, v, m_capture == a ? 0xffffff40u : live ? 0xff60ff60u : 0xffffe080u };
 	}
-	y += 3;
-	row(R_DEAD, y, tr("Zona muerta", "Dead zone"), "< " + std::to_string(prof.deadzone * 100 / 32767) + "% >"); y += 14;
-	row(R_NEW, y, m_editing ? tr("Nombre: ", "Name: ") + m_edit + ((SDL_GetTicks() / 400) % 2 ? "_" : " ") : tr("Nuevo perfil (copia de este)", "New profile (copy of this one)"), ""); y += 11;
-	row(R_RESET, y, tr("Restablecer valores por defecto", "Reset to defaults"), ""); y += 11;
-	row(R_DELETE, y, tr("Borrar perfil", "Delete profile"), ""); y += 11;
-	row(R_EXPORT, y, tr("Exportar perfil", "Export profile"), ""); y += 11;
-	row(R_IMPORT, y, tr("Importar perfiles", "Import profiles"), ""); y += 11;
-	row(R_BACK, y, tr("Volver", "Back"), "");
-	const char *help = m_capture >= 0 ? tr("Pulsa el boton otra vez para quitarlo. Esc: cancelar", "Press an already bound input to remove it. Esc: cancel")
+	rows[R_DEAD] = { tr("Zona muerta", "Dead zone"), "< " + std::to_string(prof.deadzone * 100 / 32767) + "% >", 0xffffe080 };
+	rows[R_NEW] = { m_editing ? tr("Nombre: ", "Name: ") + m_edit + ((SDL_GetTicks() / 400) % 2 ? "_" : " ") : tr("Nuevo perfil (copia de este)", "New profile (copy of this one)"), "", 0 };
+	rows[R_RESET] = { tr("Restablecer valores por defecto", "Reset to defaults"), "", 0 };
+	rows[R_DELETE] = { tr("Borrar perfil", "Delete profile"), "", 0 };
+	rows[R_EXPORT] = { tr("Exportar perfil", "Export profile"), "", 0 };
+	rows[R_EXPORT_SETUP] = { m_ctl_game < 0 ? tr("Exportar config. de todos los juegos", "Export setup for all games") : tr("Exportar config. de este juego", "Export setup for this game"), "", 0 };
+	rows[R_IMPORT] = { tr("Importar perfiles / configuraciones", "Import profiles / setups"), "", 0 };
+	rows[R_BACK] = { tr("Volver", "Back"), "", 0 };
+	const int top = 35, rh = 11, vis = 19;
+	if (m_ctl_sel < m_ctl_scroll) m_ctl_scroll = m_ctl_sel;
+	if (m_ctl_sel >= m_ctl_scroll + vis) m_ctl_scroll = m_ctl_sel - vis + 1;
+	for (int r = m_ctl_scroll; r < std::min(int(R_COUNT), m_ctl_scroll + vis); r++)
+	{
+		int y = top + (r - m_ctl_scroll) * rh;
+		bool sel = r == m_ctl_sel;
+		if (sel) cv.blend(10, y - 2, cv.w - 20, rh, 0xffffa020, 90);
+		const line_t &l = rows[size_t(r)];
+		cv.text(16, y, l.label.substr(0, l.value.empty() ? 46 : 22), sel ? 0xffffffff : 0xffc8d8ff, 1, false);
+		if (!l.value.empty()) cv.text(196, y, l.value.substr(0, 25), l.vcol, 1, false);
+	}
+	if (m_ctl_scroll > 0) cv.text(cv.w - 16, top, "^", 0xffb0b0b0, 1, false);
+	if (m_ctl_scroll + vis < R_COUNT) cv.text(cv.w - 16, top + (vis - 1) * rh, "v", 0xffb0b0b0, 1, false);
+	bool custom = m_ctl_sel >= int(R_ACT0) + int(A_CUSTOM1) && m_ctl_sel < R_DEAD;
+	const char *help = m_capture >= 0 ? tr("Pulsa uno ya asignado para quitarlo. Esc: cancelar", "Press a bound input to remove it. Esc: cancel")
 	                 : m_editing ? tr("Escribe el nombre y pulsa Enter", "Type the name and press Enter")
+	                 : custom ? tr("Enter/A: asignar  Izq/Der: botones del atajo", "Enter/A: bind  Left/Right: shortcut buttons")
 	                 : tr("Enter/A: asignar  Supr/X: borrar  Izq/Der: cambiar", "Enter/A: bind  Del/X: clear  Left/Right: change");
 	cv.text(8, cv.h - 21, help, 0xffb0b0b0, 1, false);
-	cv.text(8, cv.h - 11, tr("Los perfiles valen para todos los juegos", "Profiles apply to every game"), 0xff909090, 1, false);
+	cv.text(8, cv.h - 11, m_ctl_game < 0 ? tr("Perfil para todos los juegos (cada juego puede tener el suyo)", "Profile for every game (each game can override it)")
+	                                     : tr("Solo para este juego", "Only for this game"), 0xff909090, 1, false);
 	if (!m_message.empty() && SDL_GetTicks() < m_message_until) menu_message(cv, m_message);
 	present(cv.px.data(), cv.w, cv.h, false);
 	SDL_Delay(16);

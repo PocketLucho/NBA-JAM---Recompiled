@@ -9,7 +9,30 @@
 
 namespace fs = std::filesystem;
 
-const char *const kActionNames[kNumActions] = { "up", "down", "left", "right", "shoot", "pass", "turbo", "start", "coin" };
+const char *const kActionNames[kNumActions] = { "up", "down", "left", "right", "shoot", "pass", "turbo", "start", "coin",
+                                                 "shove", "turbo_shot", "custom1", "custom2" };
+
+std::string combo_mask_text(unsigned mask)
+{
+	std::string s;
+	for (int i = 0; i < kNumButtons; i++) if (mask & (1u << i)) s += (s.empty() ? "" : "+") + std::string(kActionNames[i]);
+	return s.empty() ? "-" : s;
+}
+
+static unsigned parse_mask(const std::string &v)
+{
+	unsigned m = 0;
+	std::stringstream ss(v);
+	std::string item;
+	while (std::getline(ss, item, '+'))
+	{
+		size_t a = item.find_first_not_of(" \t"), b = item.find_last_not_of(" \t");
+		if (a == std::string::npos) continue;
+		item = item.substr(a, b - a + 1);
+		for (int i = 0; i < kNumButtons; i++) if (item == kActionNames[i]) m |= 1u << i;
+	}
+	return m;
+}
 
 static std::string trim(std::string s)
 {
@@ -80,6 +103,14 @@ bool pad_profile::pressed(SDL_GameController *c, int action) const
 	return false;
 }
 
+unsigned pad_profile::buttons(SDL_GameController *c) const
+{
+	unsigned m = 0;
+	for (int a = 0; a < kNumActions; a++)
+		if (pressed(c, a)) m |= a < kNumButtons ? 1u << a : combo[a - kNumButtons];
+	return m;
+}
+
 std::string pad_profile::action_text(int action) const
 {
 	std::string s;
@@ -102,13 +133,16 @@ std::string pad_profile::serialize() const
 	  << "# inputs: SDL GameController button names (a b x y back guide start leftstick rightstick\n"
 	  << "# leftshoulder rightshoulder dpup dpdown dpleft dpright misc1 paddle1-4 touchpad) or an\n"
 	  << "# axis with a direction (+leftx -leftx +lefty -lefty +rightx ... +lefttrigger +righttrigger),\n"
-	  << "# several separated by commas\n[profile]\nname=" << name << "\ndeadzone=" << deadzone << "\n";
+	  << "# several separated by commas. Shortcuts (shove, turbo_shot, custom1, custom2) hold several\n"
+	  << "# cabinet buttons at once; <name>_buttons lists them, e.g. custom1_buttons=turbo+pass+shoot\n[profile]\nname=" << name << "\ndeadzone=" << deadzone << "\n";
 	for (int i = 0; i < kNumActions; i++)
 	{
 		f << kActionNames[i] << "=";
 		for (size_t j = 0; j < bind[i].size(); j++) f << (j ? "," : "") << pad_input_name(bind[i][j]);
 		f << "\n";
 	}
+	for (int c = 0; c < kNumCombos; c++)
+		f << kActionNames[kNumButtons + c] << "_buttons=" << (combo[c] ? combo_mask_text(combo[c]) : "") << "\n";
 	return f.str();
 }
 
@@ -127,6 +161,11 @@ bool pad_profile::parse(const std::string &text, std::string &err)
 		if (eq == std::string::npos) continue;
 		std::string k = trim(line.substr(0, eq)), v = trim(line.substr(eq + 1));
 		if (k == "name") name = v;
+		else if (k.size() > 8 && k.substr(k.size() - 8) == "_buttons")
+		{
+			for (int c = 0; c < kNumCombos; c++)
+				if (k.substr(0, k.size() - 8) == kActionNames[kNumButtons + c]) combo[c] = parse_mask(v);
+		}
 		else if (k == "deadzone") deadzone = std::clamp(atoi(v.c_str()), 1000, 32000);
 		else
 			for (int i = 0; i < kNumActions; i++)
@@ -247,19 +286,93 @@ std::string profile_store::unique_name(const std::string &n) const
 	return n;
 }
 
-bool profile_store::import_file(const std::string &path, std::string &msg)
+// splits a file into its [profile] sections and the optional [setup] section
+static void split_sections(const std::string &text, std::vector<std::string> &profiles, std::string &setup)
 {
-	std::string text, err;
-	pad_profile p;
+	std::istringstream f(text);
+	std::string line, *cur = nullptr;
+	while (std::getline(f, line))
+	{
+		std::string t = trim(line);
+		if (t == "[profile]") { profiles.emplace_back(); cur = &profiles.back(); }
+		else if (t == "[setup]") cur = &setup;
+		else if (!t.empty() && t[0] == '[') cur = nullptr;
+		if (cur) *cur += line + "\n";
+	}
+}
+
+bool profile_store::import_file(const std::string &path, std::string &msg, import_result &res)
+{
+	res = import_result();
+	std::string text, err, setup;
 	if (!read_text(path, text)) { msg = "cannot read " + path; return false; }
-	if (!p.parse(text, err)) { msg = S(P(path).filename()) + ": " + err; return false; }
-	p.name = unique_name(p.name);       // never overwrite an existing profile
-	if (!save(p)) { msg = "cannot save " + p.name; return false; }
-	msg = p.name;
+	std::vector<std::string> secs;
+	split_sections(text, secs, setup);
+	std::string fname = S(P(path).filename());
+	if (secs.empty()) { msg = fname + ": not a controller profile"; return false; }
+	std::vector<std::pair<std::string, std::string>> renamed;   // original -> stored name
+	for (auto &sec : secs)
+	{
+		pad_profile p;
+		if (!p.parse(sec, err)) { msg = fname + ": " + err; continue; }
+		std::string orig = p.name;
+		int ex = find(p.name);
+		if (ex >= 0 && m_list[size_t(ex)].serialize() == p.serialize())
+		{
+			renamed.push_back({ orig, orig });      // identical profile already here: reuse it
+			res.names.push_back(orig);
+			continue;
+		}
+		p.name = unique_name(p.name);       // never overwrite a different profile with the same name
+		if (!save(p)) { msg = "cannot save " + p.name; continue; }
+		renamed.push_back({ orig, p.name });
+		res.names.push_back(p.name);
+	}
+	if (res.names.empty()) return false;
+	if (!setup.empty())
+	{
+		std::istringstream f(setup);
+		std::string line;
+		while (std::getline(f, line))
+		{
+			auto eq = line.find('=');
+			if (eq == std::string::npos) continue;
+			std::string k = trim(line.substr(0, eq)), v = trim(line.substr(eq + 1));
+			if (k == "game") res.game = v == "all" ? "" : v;
+			else if (k.size() == 2 && k[0] == 'p' && k[1] >= '1' && k[1] <= '4')
+			{
+				std::string nm = v;
+				for (auto &r : renamed) if (r.first == v) nm = r.second;
+				if (v.empty() || find(nm) >= 0) res.players[k[1] - '1'] = v.empty() ? "" : nm;
+			}
+		}
+		res.setup = true;
+	}
+	msg.clear();
+	for (auto &n : res.names) msg += (msg.empty() ? "" : ", ") + n;
 	return true;
 }
 
-int profile_store::import_folder(std::string &msg)
+bool profile_store::export_setup(const std::string &game, const std::string players[4], std::string &path_out)
+{
+	std::ostringstream f;
+	f << "# NBA JAM Recomp - controller setup / configuracion de mandos\n"
+	  << "# game: a game id or all; p1..p4: the profile of each player (empty = same as all games)\n"
+	  << "[setup]\ngame=" << (game.empty() ? "all" : game) << "\n";
+	std::vector<std::string> done;
+	for (int i = 0; i < 4; i++) f << "p" << (i + 1) << "=" << players[i] << "\n";
+	for (int i = 0; i < 4; i++)
+	{
+		if (players[i].empty() || std::find(done.begin(), done.end(), players[i]) != done.end() || find(players[i]) < 0) continue;
+		done.push_back(players[i]);
+		f << "\n" << get(players[i]).serialize();
+	}
+	path_out = path_join(path_join(m_dir, "export"), "setup_" + (game.empty() ? std::string("all") : game) + ".ini");
+	std::string t = f.str();
+	return write_text(path_out, t);
+}
+
+int profile_store::import_folder(std::string &msg, std::vector<import_result> &setups)
 {
 	std::string idir = path_join(m_dir, "import"), done = path_join(idir, "done");
 	std::error_code ec;
@@ -272,9 +385,11 @@ int profile_store::import_folder(std::string &msg)
 	for (auto &f : files)
 	{
 		std::string m;
-		bool ok = import_file(S(f), m);
+		import_result r;
+		bool ok = import_file(S(f), m, r);
 		if (ok)
 		{
+			if (r.setup) setups.push_back(r);
 			n++;
 			fs::create_directories(P(done), ec);
 			fs::rename(f, P(done) / f.filename(), ec);

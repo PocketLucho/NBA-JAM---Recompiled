@@ -60,7 +60,13 @@ CONTROLS (keyboard)
   Remapping: main menu -> "Controls". Pick a player, pick or create a profile,
   select an action and press Enter/A, then the pad button or stick direction
   (press an already bound input again to remove it; Del/X clears the action).
-  Profiles work in every game. Each player (P1-P4) uses its own profile.
+  Each player (P1-P4) has its own profile for all games; set "Game" to a
+  single game to give it a different profile there ("as all" = no override).
+  Shortcuts: one pad input holds several arcade buttons at once - Shove
+  (turbo+pass; on offence the same buttons do a turbo pass), Turbo shot
+  (turbo+shoot) and two custom shortcuts (Left/Right picks their buttons).
+  "Export setup" saves the per-player choice of the selected game (or all
+  games) together with those profiles in one file; importing it restores it.
   Profiles are saved in controller_profiles/. "Export profile" writes it to
   controller_profiles/export/ (path copied to the clipboard); to import, copy
   .ini profiles to controller_profiles/import/ and choose "Import profiles",

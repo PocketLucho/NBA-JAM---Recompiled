@@ -9,8 +9,12 @@
 #include <string>
 #include <vector>
 
-enum { kNumActions = 9 };   // up, down, left, right, shoot, pass, turbo, start, coin
+// 9 cabinet buttons, then shortcuts: one pad input that holds several cabinet
+// buttons at once (e.g. shove = turbo + pass, the same for every game)
+enum { kNumButtons = 9, kNumCombos = 4, kNumActions = kNumButtons + kNumCombos };
+enum { A_UP, A_DOWN, A_LEFT, A_RIGHT, A_SHOOT, A_PASS, A_TURBO, A_START, A_COIN, A_SHOVE, A_TURBO_SHOT, A_CUSTOM1, A_CUSTOM2 };
 extern const char *const kActionNames[kNumActions];
+std::string combo_mask_text(unsigned mask);                  // "turbo+pass"
 
 // one physical input on a pad: a button, or one direction of an axis
 struct pad_input
@@ -29,9 +33,11 @@ struct pad_profile
 	std::string name = "Default";
 	int deadzone = 12000;                                    // axis threshold (0..32767)
 	std::vector<pad_input> bind[kNumActions];
+	unsigned combo[kNumCombos] = { (1u << A_TURBO) | (1u << A_PASS), (1u << A_TURBO) | (1u << A_SHOOT), 0, 0 };   // cabinet buttons per shortcut
 
 	static pad_profile defaults();                           // the original fixed layout
 	bool pressed(SDL_GameController *c, int action) const;
+	unsigned buttons(SDL_GameController *c) const;            // cabinet buttons held (bit = action), shortcuts expanded
 	std::string action_text(int action) const;               // "a, y" or "-" when unbound
 	void add(int action, const pad_input &in);               // adds (a second press of the same input removes it)
 	std::string serialize() const;
@@ -39,6 +45,15 @@ struct pad_profile
 };
 
 bool valid_profile_name(const std::string &n);
+
+// a "game setup" file: the profiles one game uses for each player, bundled together
+struct import_result
+{
+	std::vector<std::string> names;                          // profiles added (after renaming on clashes)
+	std::string game;                                        // setup bundle: game id ("" = all games)
+	std::string players[4];                                  // setup bundle: (renamed) profile per player
+	bool setup = false;
+};
 
 class profile_store
 {
@@ -50,9 +65,11 @@ public:
 	bool save(const pad_profile &p);
 	bool remove(const std::string &name);
 	bool export_profile(const pad_profile &p, std::string &path_out);
+	// one file with the player->profile assignment of a game (or "" = all games) and those profiles
+	bool export_setup(const std::string &game, const std::string players[4], std::string &path_out);
 	// imports every file in controller_profiles/import/ (moved to import/done/ afterwards)
-	int import_folder(std::string &msg);
-	bool import_file(const std::string &path, std::string &msg);
+	int import_folder(std::string &msg, std::vector<import_result> &setups);
+	bool import_file(const std::string &path, std::string &msg, import_result &res);
 	std::string dir() const { return m_dir; }
 private:
 	std::string unique_name(const std::string &n) const;

@@ -60,8 +60,13 @@ CONTROLES (teclado)
   Reasignar: menu principal -> "Controles". Elige jugador y perfil (o crea
   uno), selecciona una accion, pulsa Enter/A y luego el boton o la direccion
   del stick (pulsar uno ya asignado lo quita; Supr/X borra la accion).
-  Los perfiles valen para todos los juegos y cada jugador (J1-J4) tiene el
-  suyo. Se guardan en controller_profiles/. "Exportar perfil" lo escribe en
+  Cada jugador (J1-J4) tiene un perfil para todos los juegos; elige un juego
+  en "Juego" para darle otro perfil solo ahi ("como todos" = sin cambio).
+  Atajos: una entrada del mando pulsa varios botones a la vez - Empujon
+  (turbo+pase; en ataque esos botones hacen pase turbo), Tiro turbo
+  (turbo+tiro) y dos atajos propios (Izq/Der elige sus botones).
+  "Exportar config." guarda en un fichero los perfiles de cada jugador del
+  juego elegido (o de todos) junto con esos perfiles; al importarlo se aplica. Se guardan en controller_profiles/. "Exportar perfil" lo escribe en
   controller_profiles/export/ (ruta copiada al portapapeles); para importar,
   copia los .ini en controller_profiles/import/ y elige "Importar perfiles",
   o arrastra el fichero a la ventana.
