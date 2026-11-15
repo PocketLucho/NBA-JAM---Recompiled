@@ -1457,11 +1457,11 @@ void app::choose_data_folder()
 			"Your settings, saves, mods and ROMs are next to the program. This version keeps them in your user folder:\n\n"
 			+ m_paths.data_dir + "\n\n"
 			"Mover / Move: los lleva alli (recomendado) / takes them there (recommended).\n"
-			"Dejar aqui / Keep here: todo sigue en esta carpeta (modo portable) / everything stays in this folder (portable mode).\n"
+			"Aqui / Here: todo sigue en esta carpeta (modo portable) / everything stays in this folder (portable mode).\n"
 			"Luego / Later: no cambia nada y se pregunta otra vez / nothing changes and you are asked again.";
 		const SDL_MessageBoxButtonData buttons[] = {
 			{ SDL_MESSAGEBOX_BUTTON_RETURNKEY_DEFAULT, 1, "Mover / Move" },
-			{ 0, 2, "Dejar aqui / Keep here" },
+			{ 0, 2, "Aqui / Here" },
 			{ SDL_MESSAGEBOX_BUTTON_ESCAPEKEY_DEFAULT, 0, "Luego / Later" },
 		};
 		const SDL_MessageBoxData box = { SDL_MESSAGEBOX_INFORMATION, nullptr, "NBA JAM Recomp", text.c_str(), 3, buttons, nullptr };
