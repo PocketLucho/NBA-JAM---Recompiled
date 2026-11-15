@@ -48,7 +48,7 @@ static bool has_user_content(const fs::path &dir)
 		if (fs::is_directory(dir / d, ec) && !fs::is_empty(dir / d, ec)) return true;
 	if (fs::is_directory(dir / "roms", ec))
 		for (auto it = fs::directory_iterator(dir / "roms", ec); !ec && it != fs::directory_iterator(); it.increment(ec))
-			if (it->path().filename() != "LEEME_README.txt") return true;
+			if (it->path().filename() != "README.txt" && it->path().filename() != "LEEME_README.txt") return true;   // read-me of this and of older packages
 	return false;
 }
 
@@ -110,9 +110,7 @@ bool make_portable(const app_paths &p)
 {
 	std::ofstream f(P(p.exe_dir) / "portable.txt");
 	f << "This file makes NBA JAM Recomp keep its settings, saves, mods and roms in this folder.\n"
-	     "Delete it to use the per-user folder instead.\n"
-	     "Con este archivo, NBA JAM Recomp guarda ajustes, partidas, mods y roms en esta carpeta.\n"
-	     "Borralo para usar la carpeta de usuario.\n";
+	     "Delete it to use the per-user folder instead.\n";
 	if (!f) return false;
 	// the per-user folder was only created to offer it: do not leave it behind empty
 	std::error_code ec;

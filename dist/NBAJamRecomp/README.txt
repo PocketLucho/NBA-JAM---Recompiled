@@ -5,10 +5,8 @@ Project: https://github.com/PocketLucho/NBA-JAM---Recompiled
 If you want to support me, go to https://buymeacoffee.com/pocket_lucho
 
 Run NBAJamRecomp.exe (64-bit Windows 10/11, no installation). A menu lets you
-pick the game (arrows + Enter, or a gamepad). Esc goes back to the menu. The
-language (castellano / English) is chosen in the menu.
+pick the game (arrows + Enter, or a gamepad). Esc goes back to the menu.
 
-(Castellano: ver LEEME.txt)
 
 
 IMPORTANT: YOU PROVIDE THE GAME DATA
@@ -84,7 +82,7 @@ CONTROLS (keyboard)
   9    service button (credit)
   Esc  back to the game menu
 
-Settings (language, scale, keys, volume, DIPs) are kept in nbajam_recomp.ini
+Settings (scale, keys, volume, DIPs) are kept in nbajam_recomp.ini
 next to the .exe. Each game's high scores and settings (NVRAM/CMOS) are kept
 in saves\.
 

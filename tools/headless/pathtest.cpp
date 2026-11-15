@@ -35,12 +35,12 @@ int main()
 	// ---- a fresh installed copy: package files only ----
 	put(exe / "mods" / "quarter_length.lua", "shipped v2");
 	put(exe / "mods" / "README.txt", "readme");
-	put(exe / "roms" / "LEEME_README.txt", "put roms here");
+	put(exe / "roms" / "README.txt", "put roms here");
 	put(exe / "README.txt", "docs");
 	p = resolve_paths(exe.string(), user.string(), nullptr);
 	CHECK(!legacy_setup_present(p), "a fresh package (scripts and read-me only) is not an old setup");
 	seed_data_dir(p);
-	CHECK(get(user / "mods" / "quarter_length.lua") == "shipped v2" && fs::exists(user / "roms" / "LEEME_README.txt"), "first run copies the shipped scripts and creates roms/");
+	CHECK(get(user / "mods" / "quarter_length.lua") == "shipped v2" && fs::exists(user / "roms" / "README.txt"), "first run copies the shipped scripts and creates roms/");
 	put(user / "mods" / "quarter_length.lua", "edited by the user");
 	put(exe / "mods" / "new_mod.lua", "new in this version");
 	seed_data_dir(p);

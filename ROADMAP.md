@@ -47,7 +47,10 @@ is not available in the session), say so in the pull request instead of marking 
 3. **Addresses are found, not hard-coded, where possible.** Use the symbol file for the
    revision, or an opcode pattern as `quarter_length.lua` does. A script that cannot find
    what it needs logs that and changes nothing.
-4. **Every user-visible string exists in Spanish and English.**
+4. **English only, for now.** The Spanish interface, `README.es.md` and `LEEME.txt` were
+   removed at the owner's request; every user-visible string is written in English. Tasks
+   below that say "Spanish/English" or "both languages" mean English only until a second
+   language is brought back, at which point strings go through one table again (U1.5).
 5. **Each script declares the games it supports**, and is tested on every one it declares.
 6. **Tournament mode wins.** When a game's own tournament mode is on, scripts that grant
    power-ups or secret characters stay off, as the original does.
@@ -515,7 +518,7 @@ expectation, both languages, the README list updated by Haiku.
 | ID | Model | Task |
 |---|---|---|
 | 7.1 | Sonnet | Package `mods/`, `mods/lib/` and `mods/sym/` in the Windows and Linux builds and in `release.yml` |
-| 7.2 | Haiku | `README.md`, `README.es.md`, `dist/NBAJamRecomp/README.txt`, `LEEME.txt`, `mods/README.txt`: script list, API reference, netplay behaviour |
+| 7.2 | Haiku | `README.md`, `dist/NBAJamRecomp/README.txt`, `mods/README.txt`: script list, API reference, netplay behaviour |
 | 7.3 | Opus | Final netplay soak: each script on, two and four peers, 30 000 frames, hashes equal |
 
 **Gate:** advisor sign-off, then tag the release.

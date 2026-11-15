@@ -129,7 +129,7 @@ void pad_profile::add(int action, const pad_input &in)
 std::string pad_profile::serialize() const
 {
 	std::ostringstream f;
-	f << "# NBA JAM Recomp - controller profile / perfil de mando\n"
+	f << "# NBA JAM Recomp - controller profile\n"
 	  << "# inputs: SDL GameController button names (a b x y back guide start leftstick rightstick\n"
 	  << "# leftshoulder rightshoulder dpup dpdown dpleft dpright misc1 paddle1-4 touchpad) or an\n"
 	  << "# axis with a direction (+leftx -leftx +lefty -lefty +rightx ... +lefttrigger +righttrigger),\n"
@@ -356,7 +356,7 @@ bool profile_store::import_file(const std::string &path, std::string &msg, impor
 bool profile_store::export_setup(const std::string &game, const std::string players[4], std::string &path_out)
 {
 	std::ostringstream f;
-	f << "# NBA JAM Recomp - controller setup / configuracion de mandos\n"
+	f << "# NBA JAM Recomp - controller setup\n"
 	  << "# game: a game id or all; p1..p4: the profile of each player (empty = same as all games)\n"
 	  << "[setup]\ngame=" << (game.empty() ? "all" : game) << "\n";
 	std::vector<std::string> done;

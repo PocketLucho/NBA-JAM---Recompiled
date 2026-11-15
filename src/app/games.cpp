@@ -1,7 +1,6 @@
 // games.cpp - the NBA JAM saga: game list, where each game's ROM data comes from, and
 // construction of the emulated board.
 #include "games.h"
-#include "lang.h"
 #include "tunit.h"
 #include "wunit.h"
 
@@ -11,11 +10,11 @@ const std::vector<game_info> &game_list()
 {
 	// ordered by release date
 	static const std::vector<game_info> list = {
-		{ "nbajam",   "NBA JAM",                      "1993 - rev 3.01 (romset MAME nbajam)",         "1993 - rev 3.01 (MAME romset nbajam)",         "T-Unit",    false },
-		{ "nbajamte", "NBA JAM Tournament Edition",   "1994 - rev 4.0 (fuente compilada = ROM)",      "1994 - rev 4.0 (source build = ROM)",          "T-Unit",    true },
-		{ "nbajamse", "NBA JAM T.E. Special Edition", "1994/2025 - rev 5.02 de Asure (fuente = ROM)", "1994/2025 - Asure's rev 5.02 (source = ROM)",  "T-Unit",    true },
-		{ "nbahangt", "NBA Hangtime",                 "1996 - ver L1.3 o L1.1 (romset MAME)",         "1996 - ver L1.3 or L1.1 (MAME romset)",        "Wolf Unit", false },
-		{ "nbamht",   "NBA Maximum Hangtime",         "1996 - ver 1.3 (fuente = ROM) o 1.03",         "1996 - ver 1.3 (source = ROM) or 1.03",        "Wolf Unit", true },
+		{ "nbajam",   "NBA JAM",                      "1993 - rev 3.01 (MAME romset nbajam)",         "T-Unit",    false },
+		{ "nbajamte", "NBA JAM Tournament Edition",   "1994 - rev 4.0 (source build = ROM)",          "T-Unit",    true },
+		{ "nbajamse", "NBA JAM T.E. Special Edition", "1994/2025 - Asure's rev 5.02 (source = ROM)",  "T-Unit",    true },
+		{ "nbahangt", "NBA Hangtime",                 "1996 - ver L1.3 or L1.1 (MAME romset)",        "Wolf Unit", false },
+		{ "nbamht",   "NBA Maximum Hangtime",         "1996 - ver 1.3 (source = ROM) or 1.03",        "Wolf Unit", true },
 	};
 	return list;
 }
@@ -115,7 +114,7 @@ static bool have_all(rom_pool &p, const rom_desc *d, int n)
 }
 static bool load_desc(rom_pool &p, const rom_desc &d, std::vector<u8> &out, std::string &err)
 {
-	if (!p.get("", d.crc, out)) { err = std::string(tr("no se encuentra ", "missing ")) + d.name; return false; }
+	if (!p.get("", d.crc, out)) { err = std::string("missing ") + d.name; return false; }
 	return true;
 }
 template <size_t N>
@@ -145,7 +144,7 @@ bool game_catalog::from_roms(const game_info &g, std::string &why)
 	if (id == "nbajam")
 	{
 		if (have_all(p, nbajam_prog, 2) && have_all(p, nbajam_gfx, 16) && have_all(p, nbajam_snd, 3)) return true;
-		why = tr("Copia el romset MAME nbajam.zip en la carpeta roms/", "Copy the MAME romset nbajam.zip to the roms/ folder");
+		why = "Copy the MAME romset nbajam.zip to the roms/ folder";
 		return false;
 	}
 	if (id == "nbajamte")
@@ -153,16 +152,14 @@ bool game_catalog::from_roms(const game_info &g, std::string &why)
 		bool prog = have_all(p, te_prog, 2), gfx = have_all(p, te_gfx, 16) || have_all(p, te_irw, 4);
 		bool snd = have_all(p, te_snd, 3) || have_all(p, se_snd, 3);
 		if (prog && gfx && snd) return true;
-		why = prog && gfx ? tr("Faltan las ROMs de sonido: copia nbajamte.zip (MAME) en roms/", "Sound ROMs missing: copy nbajamte.zip (MAME) to roms/")
-		                  : tr("Copia nbajamte.zip (MAME) o el ZIP del repositorio nba-jam-tournament-edition en roms/",
-		                       "Copy nbajamte.zip (MAME) or the ZIP of the nba-jam-tournament-edition repository to roms/");
+		why = prog && gfx ? "Sound ROMs missing: copy nbajamte.zip (MAME) to roms/"
+		                  : "Copy nbajamte.zip (MAME) or the ZIP of the nba-jam-tournament-edition repository to roms/";
 		return false;
 	}
 	if (id == "nbajamse")
 	{
 		if (have_all(p, se_prog, 2) && have_all(p, se_gfx, 16) && have_all(p, se_snd, 3)) return true;
-		why = tr("Copia el ZIP del repositorio nba-jam-tournament-edition-SE (Asure) en roms/",
-		         "Copy the ZIP of the nba-jam-tournament-edition-SE repository (Asure) to roms/");
+		why = "Copy the ZIP of the nba-jam-tournament-edition-SE repository (Asure) to roms/";
 		return false;
 	}
 	bool ht = id == "nbahangt";
@@ -172,14 +169,13 @@ bool game_catalog::from_roms(const game_info &g, std::string &why)
 		bool rest = wolf_gfx_ok(p) && have_all(p, ht_dcs, 4);
 		if (v && rest) return true;
 		if (!v)
-			why = ht ? tr("Copia el romset MAME nbahangt.zip en roms/", "Copy the MAME romset nbahangt.zip to roms/")
-			         : tr("Copia el ZIP del repositorio nba-hangtime (ROMS/7M_13M) o nbamht.zip (MAME) en roms/",
-			              "Copy the ZIP of the nba-hangtime repository (ROMS/7M_13M) or nbamht.zip (MAME) to roms/");
+			why = ht ? "Copy the MAME romset nbahangt.zip to roms/"
+			         : "Copy the ZIP of the nba-hangtime repository (ROMS/7M_13M) or nbamht.zip (MAME) to roms/";
 		else
-			why = tr("Faltan graficos/sonido: copia nbahangt.zip (MAME) en roms/", "Graphics/sound missing: copy nbahangt.zip (MAME) to roms/");
+			why = "Graphics/sound missing: copy nbahangt.zip (MAME) to roms/";
 		return false;
 	}
-	why = tr("juego desconocido", "unknown game");
+	why = "unknown game";
 	return false;
 }
 
@@ -217,7 +213,7 @@ static bool load_tunit_irw(rom_pool &p, const rom_desc *irw, int n, std::vector<
 			std::memcpy(&addr, &d[pos + 0x2c], 4);
 			std::memcpy(&len, &d[pos + 0x30], 4);
 			size_t off = (addr - 0x2000000u) / 8;
-			if (addr < 0x2000000u || pos + 0x44 + len > d.size() || off + len > out.size()) { err = std::string(tr("fichero IRW no valido: ", "bad IRW file: ")) + irw[i].name; return false; }
+			if (addr < 0x2000000u || pos + 0x44 + len > d.size() || off + len > out.size()) { err = std::string("bad IRW file: ") + irw[i].name; return false; }
 			std::memcpy(&out[off], &d[pos + 0x44], len);
 			pos += 0x44 + len;
 		}
@@ -268,7 +264,7 @@ std::unique_ptr<arcade_machine> game_catalog::create(const game_info &g, std::st
 		std::vector<u8> prog, gfx;
 		if (!read_whole_file(path_join(d, "program.bin"), prog) || !read_whole_file(path_join(d, "gfx.bin"), gfx))
 		{
-			err = tr("no se pueden leer los ficheros de ", "cannot read the files in ") + d;
+			err = "cannot read the files in " + d;
 			return nullptr;
 		}
 		if (wolf)
@@ -289,7 +285,7 @@ std::unique_ptr<arcade_machine> game_catalog::create(const game_info &g, std::st
 		else if (!read_whole_file(path_join(sd, "u3.bin"), r.snd_u3) || !read_whole_file(path_join(sd, "u12.bin"), r.snd_u12) ||
 			!read_whole_file(path_join(sd, "u13.bin"), r.snd_u13))
 		{
-			err = tr("faltan las ROMs de sonido en ", "sound ROMs missing in ") + sd;
+			err = "sound ROMs missing in " + sd;
 			return nullptr;
 		}
 		r.snd_u3.resize(0x20000, 0xff); r.snd_u12.resize(0x80000, 0); r.snd_u13.resize(0x80000, 0);
@@ -320,6 +316,6 @@ std::unique_ptr<arcade_machine> game_catalog::create(const game_info &g, std::st
 		load_dcs_words(p, r.dcs);
 		return std::make_unique<wunit_machine>(std::move(r), 528);
 	}
-	err = tr("juego desconocido", "unknown game");
+	err = "unknown game";
 	return nullptr;
 }
