@@ -49,6 +49,10 @@ a `data/<juego>/` y se usan si no se encuentran las ROMs.
 * Juego en red hasta 4 jugadores: lockstep por UDP, con huella de ROMs y deteccion de
   desincronizacion
 * Teclado (4 jugadores) y mandos, NVRAM por juego, capturas de pantalla (F12)
+* Mods Lua: scripts `.lua` en `mods/`, que se activan desde el menu **Mods Lua** para
+  todos los juegos o para los elegidos. Incluidos: `quarter_length.lua` (duracion de los
+  cuartos, de 0:30 a 12:00) y `no_select_timer.lua` (quita la cuenta atras de la seleccion
+  de equipos), probados en T.E., T.E. SE, Hangtime y Maximum Hangtime. Ver `dist/NBAJamRecomp/mods/README.txt`.
 
 ## Compilar la aplicacion
 

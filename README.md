@@ -47,6 +47,33 @@ for the per-game list. Games built from source with `tools/build_roms.sh` (below
 * Online play for up to 4 players: lockstep over UDP, with ROM fingerprint and
   desync detection
 * Keyboard (4 players) and gamepads, per-game NVRAM, screenshots (F12)
+* Lua mods: `.lua` scripts in `mods/`, switched on from the **Lua mods** menu for all
+  games or for chosen ones (see [Lua mods](#lua-mods))
+
+## Lua mods
+
+Scripts in `mods/` next to the program show up in the main menu under **Lua mods**.
+Left/Right turns a mod on or off; Enter opens its page, where *Apply to* switches between
+**All games** and **Selected games** (one checkbox per game) and the mod's options are set.
+Choices are saved in `mods.ini`. Mods run in a sandbox (no file or OS access) with Lua 5.4.
+
+Included:
+
+| Script | What it does |
+|---|---|
+| `quarter_length.lua` | quarter (and overtime) length from 0:30 to 12:00; the original is 3:00. The scoreboard has one minutes digit, so above 9:00 it reads 9 until 9 minutes are left (the time played is exact) |
+| `no_select_timer.lua` | removes the countdown on the team select screen (option: the initials entry one too) |
+
+Both find the code they change by its instruction pattern, so they work on any revision
+that shares it. They were checked on T.E. rev 4.0, T.E. SE rev 5.02, Hangtime L1.3 and Maximum Hangtime 1.3
+with `build/linux/modtest` (`make build/linux/modtest`): with `quarter_length` set to 1:30
+every quarter starts at 1:30 (12:00 checked on T.E.), and with `no_select_timer` the select
+screen waits for the players instead of picking for them. Hangtime's shorter countdowns
+("winner stays", trivia) are left alone. NBA JAM (1993) has no public source and is
+untested; if the pattern is not in its ROM the mod says so on screen and changes nothing.
+
+Online games: both players need the same mods, since they change the program and are
+part of the ROM fingerprint. Writing your own: see `dist/NBAJamRecomp/mods/README.txt`.
 
 ## Repository layout
 
@@ -55,7 +82,8 @@ for the per-game list. Games built from source with `tools/build_roms.sh` (below
 | `src/emu` | minimal MAME-compatible device framework |
 | `src/mame` | unmodified MAME CPU cores (TMS34010, M6809, ADSP-2105), OKI ADPCM, ymfm |
 | `src/board` | Midway T-Unit (DMA blitter, protection, Williams ADPCM sound) and Wolf Unit (security PIC, DCS) |
-| `src/app` | SDL2 application: menu, ROM loading, video, shaders, netplay |
+| `src/app` | SDL2 application: menu, ROM loading, video, shaders, netplay, Lua mods |
+| `src/third_party/lua` | Lua 5.4.6, unmodified |
 | `tools/gspasm` | assembler/linker compatible with TI GSPA/GSPLNK, written for this project |
 | `tools/build_roms.sh` | rebuilds the games from the source repositories |
 | `tools/lod_palbpp.py`, `fix_narrow.py`, `fix_pwrd.py` | make the 1995 LOAD2 output match the 1994 tools (see below) |
@@ -109,7 +137,7 @@ pack the art, compares the results with the original ROMs and writes `data/<game
 
 The code of this project is released under the BSD 3-Clause licence (see `LICENSE`).
 Third-party code: MAME CPU cores and ymfm (BSD 3-Clause), miniz (MIT / Unlicense),
-font8x8 (public domain), SDL2 (zlib). NBA JAM, NBA Hangtime and Midway are trademarks of
+font8x8 (public domain), SDL2 (zlib), Lua 5.4 (MIT). NBA JAM, NBA Hangtime and Midway are trademarks of
 their owners; this is a non-profit fan project not affiliated with them.
 
 ## Credits

@@ -52,4 +52,10 @@ public:
 	virtual cpu_device *soundcpu() { return nullptr; }
 	virtual u32 state_hash() const { return 0; }        // main RAM hash (netplay desync check)
 	virtual u32 fingerprint() const { return 0; }       // ROM identity (netplay)
+
+	// Lua mods: program ROM (interleaved little-endian words, mapped at bit address
+	// 0xff800000) and the main CPU's view of memory (bit addresses, 16-bit words).
+	virtual std::vector<u8> *program_rom() { return nullptr; }
+	virtual u16 peek16(u32 bitaddr) { (void)bitaddr; return 0; }
+	virtual void poke16(u32 bitaddr, u16 v) { (void)bitaddr; (void)v; }
 };
