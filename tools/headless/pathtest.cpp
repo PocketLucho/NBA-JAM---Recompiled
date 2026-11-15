@@ -88,7 +88,9 @@ int main()
 	fs::remove_all(root);
 	put(exe / "nbajam_recomp.ini", "old");
 	p = resolve_paths(exe.string(), user.string(), nullptr);
+	fs::create_directories(user);      // as SDL_GetPrefPath leaves it
 	CHECK(make_portable(p), "portable.txt can be written");
+	CHECK(!fs::exists(user), "choosing portable removes the empty per-user folder");
 	p = resolve_paths(exe.string(), user.string(), nullptr);
 	CHECK(p.portable && p.data_dir == exe.string() && get(exe / "nbajam_recomp.ini") == "old", "after choosing portable, the old setup is used as it is");
 	seed_data_dir(p);

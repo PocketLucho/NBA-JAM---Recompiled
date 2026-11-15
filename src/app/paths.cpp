@@ -113,7 +113,11 @@ bool make_portable(const app_paths &p)
 	     "Delete it to use the per-user folder instead.\n"
 	     "Con este archivo, NBA JAM Recomp guarda ajustes, partidas, mods y roms en esta carpeta.\n"
 	     "Borralo para usar la carpeta de usuario.\n";
-	return bool(f);
+	if (!f) return false;
+	// the per-user folder was only created to offer it: do not leave it behind empty
+	std::error_code ec;
+	if (fs::is_directory(P(p.data_dir), ec) && fs::is_empty(P(p.data_dir), ec)) fs::remove(P(p.data_dir), ec);
+	return true;
 }
 
 void seed_data_dir(const app_paths &p)
