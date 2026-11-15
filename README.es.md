@@ -19,8 +19,12 @@ Si quieres apoyarme ve a https://buymeacoffee.com/pocket_lucho
 
 ## Descarga
 
-* Windows 10/11 x64: [releases/NBAJamRecomp-windows-x64.zip](releases/NBAJamRecomp-windows-x64.zip)
-* Linux x64 (glibc 2.38+): [releases/NBAJamRecomp-linux-x64.tar.gz](releases/NBAJamRecomp-linux-x64.tar.gz)
+Descarga la ultima version desde la **[pagina de Releases](https://github.com/richvam/NBA-JAMs-Recomp/releases)**:
+
+* Windows 10/11 x64: `NBAJamRecomp-<version>-windows-x64.zip`
+* Linux x64: `NBAJamRecomp-<version>-linux-x64.tar.gz`
+
+Las compilaciones se generan automaticamente con cada etiqueta de version; no se guardan en el repositorio.
 
 Descomprime, copia tus ROMs en `roms/` (ver abajo) y ejecuta `NBAJamRecomp`.
 
