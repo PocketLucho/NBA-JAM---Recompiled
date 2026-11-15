@@ -69,6 +69,12 @@ jobs:
           build/linux/pathtest | tee pathtest.log
           grep -q ", 0 failed" pathtest.log
 
+      - name: Release news tests (no network needed)
+        run: |
+          set -o pipefail
+          build/linux/newstest | tee newstest.log
+          grep -q ", 0 failed" newstest.log
+
       - name: Version string matches the tag
         run: |
           got=$(build/NBAJamRecomp-linux --version)
