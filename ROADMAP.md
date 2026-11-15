@@ -1,8 +1,8 @@
 # NBA JAM Recomp roadmap
 
 This file is the working plan for the project. Part 1 (widescreen and display), Part 2
-(interface overhaul) and Part 3 (Lua scripts) are specified below; later parts are added
-as they are agreed.
+(interface overhaul), Part 3 (Lua scripts) and Part 4 (online) are specified below; later
+parts are added as they are agreed.
 
 **Order of work:**
 
@@ -12,6 +12,7 @@ as they are agreed.
 3. Part 2, phases U1 to U7: the interface overhaul.
 4. W2 to W6 (Part 1): true widescreen and ultrawide.
 5. Part 3 from Phase 1 on: Lua scripts.
+6. Part 4, phases N1 to N9: online rooms, spectating, queues and chat.
 
 The interface comes before the Lua work so that the mod, controller and pause menus are
 built once, in the new style. Each task names the model that should do it:
@@ -183,7 +184,11 @@ chunky gradient lettering, a status line along the bottom.
 * **Font and art:** an original chunky gradient font, drawn for this project, ships with
   the application, so the menus always work. When the user's ROMs are present, the real
   lettering, team logos and backgrounds are read from them at run time and used instead.
-  None of that art is ever stored in the repository or in a release.
+  None of that art is ever stored in the repository or in a release. Real lettering is
+  decoded only for the games with source (T.E., SE, Maximum Hangtime 1.3). NBA JAM 1993
+  borrows the T.E. lettering when a T.E. ROM is present and Hangtime borrows Maximum
+  Hangtime's; otherwise they use the project font. No font reverse engineering is done
+  for the ROM-only games.
 * **Theme per game:** one layout everywhere; colours, background and lettering follow the
   highlighted game (NBA JAM 1993, T.E. and SE, Hangtime, Maximum Hangtime). A neutral
   theme is used when a game's ROM is missing.
@@ -219,7 +224,7 @@ Opus. New files under `src/app/ui/`; `main.cpp` shrinks instead of growing.
 | ID | Model | Task | Check |
 |---|---|---|---|
 | U2.1 | Opus | **Project font:** an original bitmap font in the chunky, bevelled, gradient style: capitals, digits, punctuation, accented Spanish letters, in three sizes (title, list, small). Drawn new; not traced from the games. Gradient and outline colours come from the theme. | Full character sheet screenshot |
-| U2.2 | Opus | **ROM art reader:** find and decode the lettering, team logos, backgrounds and menu palettes in each game's graphics ROM, using the image tables (`IMGTBL.ASM`, the `.TBL` files and `tools/imgfile.py` for the source games; by pattern for the ROM-only ones). Decoded at run time into memory only. Any image that fails to decode falls back to the project art without an error on screen. | Each game: logos and lettering decoded and shown in a test screen; removing the ROM shows the fallback |
+| U2.2 | Opus | **ROM art reader:** find and decode the lettering, team logos, backgrounds and menu palettes in each game's graphics ROM, using the image tables (`IMGTBL.ASM`, the `.TBL` files and `tools/imgfile.py`). Source games only; the ROM-only games borrow a sibling's lettering or use the project font. Decoded at run time into memory only. Any image that fails to decode falls back to the project art without an error on screen. | Each game: logos and lettering decoded and shown in a test screen; removing the ROM shows the fallback |
 | U2.3 | Sonnet | **Themes:** a small theme file per game family (colours, gradient, background, highlight, which ROM images to use). The picker changes theme as the highlighted game changes, with a short cross-fade. | Screenshot of the picker on each game |
 | U2.4 | Sonnet | Glyphs missing from a game's own font (accents, symbols, lower case if absent) come from the project font, matched in size and colour. | Spanish strings render fully in every theme |
 
@@ -272,9 +277,8 @@ Check for each: `viewtest` screenshots in both languages, and the U1.2 automated
 
 ## Part 2 risks
 
-* **The real lettering and logos depend on decoding each game's art.** The source games
-  have image tables; NBA JAM 1993 and the ROM-only Hangtime sets need them found by hand.
-  Until then those games use the project font, which is why it comes first.
+* **The real lettering and logos depend on decoding each game's art.** Only the source
+  games are decoded, from their image tables. The others borrow or use the project font.
 * **Team logos and player likenesses are NBA property.** They are only ever shown from the
   user's own ROM, never redrawn or shipped.
 * **Not a copy of Sigil.** The reference sets the layout and feel; the font, colours and
@@ -501,6 +505,177 @@ expectation, both languages, the README list updated by Haiku.
 
 ---
 
-# Part 4 and later
+# Part 4: Online
+
+Goal: rooms in the style of Ember for Street Fighter IV. Public and private rooms, tables
+with seats, queues, spectating, chat in the room and during a game, all usable with a
+controller, at no running cost to the project.
+
+## Is it possible without servers?
+
+Yes, with one honest qualification. Players cannot find each other on the internet
+without *some* shared meeting point, so "no servers" becomes "no servers the project
+pays for or maintains". Everything heavy stays between the players:
+
+| Job | Where it runs | Cost |
+|---|---|---|
+| Game inputs, state checks | Player to player (UDP), as today | None |
+| Room chat, game chat, seats, queues | Player to player, through the room's host | None |
+| Spectator feed | From the table's host, or passed along by other spectators | None |
+| **Room list and introductions** | A tiny service on a free hosting tier, with public relays as fallback | None, within daily limits |
+| Finding your own public address | Free public STUN servers | None |
+| Relay for the few connections that cannot go direct | Another member of the room | None |
+
+What this buys and what it does not:
+
+* Rooms keep working if the meeting point is down or over its limit: a private room code
+  or a direct IP address still connects, and rooms already open are unaffected.
+* Most home connections can connect directly once introduced. A minority (strict or
+  carrier-grade NAT on both ends) cannot; they are relayed through a room member who
+  can, or told plainly that they need a virtual LAN such as Tailscale.
+* The free tier has daily request limits. The design spends requests only on listing
+  and joining rooms, never on chat or play, which should cover hundreds of players a
+  day. That figure is an estimate; N3.1 measures it against the limits in force then.
+* Someone has to own the free account the room list runs in. That is the project owner;
+  it needs no payment card and no upkeep beyond deploying it once.
+
+## Decisions
+
+* **Meeting point:** Cloudflare free tier first; public relay network as fallback.
+* **Netcode:** lockstep now, improved. Save states are built as a foundation. Rollback is
+  a later phase with its own feasibility check.
+* **Identity:** a nickname only. No accounts, no sign-in.
+* **Order:** after Part 3, so tables show and sync their Lua scripts from the start.
+
+## What exists today
+
+* Lockstep with input delay over UDP, star topology, up to four players, one game per
+  host. The host must forward UDP port 7845 or everyone must use a virtual LAN. Joining
+  means typing the host's IP address.
+* Every game starts from power-on on all machines with the same NVRAM and settings.
+* The emulator has no save states: `save_item` in `src/emu/emu.h` is an empty stub. So
+  nobody can join a game in progress, reconnect after a drop, or recover from a desync.
+* No spectators, no chat, no room list.
+
+## Phase N1: save states
+
+Opus. The foundation for instant spectating, reconnect, desync recovery, replays and
+rollback. Useful offline too.
+
+| ID | Task | Check |
+|---|---|---|
+| N1.1 | Implement `save_item` registration in `src/emu` and serialise every device: TMS34010, the sound CPUs (M6809, ADSP-2105), YM2151, OKI and DCS state, video RAM, blitter state, palette, NVRAM, protection and security PIC state, on both boards. | Save at frame N, run 3 000 frames, record hashes; load, run 3 000 frames; hashes equal on every game |
+| N1.2 | Audio continues cleanly across a load (no click, no drift), and the Lua engine's per-script state is saved with the machine. | Audio capture across a load; a script counter survives |
+| N1.3 | Size and speed: a state small and fast enough to send to a joining player and, later, to take every frame. Report bytes (raw and compressed) and microseconds per save and load. | Numbers in the pull request; they feed N9.1 |
+| N1.4 (Sonnet) | Offline save slots in the pause menu, off by default, and never available online. | Save and load from the menu in a scripted run |
+
+**Gate:** advisor reviews the determinism results. Nothing else in Part 4 that touches a
+running game starts before this passes on all five games.
+
+## Phase N2: connecting without port forwarding
+
+Opus.
+
+| ID | Task | Check |
+|---|---|---|
+| N2.1 | **Automatic port mapping** (UPnP, NAT-PMP, PCP) when hosting, removed on exit. | Works against a test router implementation in CI |
+| N2.2 | **Hole punching:** learn the public address from STUN, exchange candidates through the meeting point (N3), punch both ways, keep the mapping alive. IPv6 used directly when both sides have it. | Simulated NAT matrix (full cone, restricted, port restricted, symmetric): expected pairs connect |
+| N2.3 | **Peer relay:** when two members cannot connect directly, a third member both can reach forwards their packets. Chosen automatically, shown in the room, bandwidth capped. | Symmetric-to-symmetric pair plays through a relay in the simulator |
+| N2.4 | **Connection report:** each player sees their own connection type (open, moderate, strict) and, per opponent, ping, jitter and whether the path is direct or relayed, as the wired and wireless icons in the reference. | Screenshot; values match the simulator's settings |
+| N2.5 | **Mesh for four players:** inputs go directly between all players instead of through the host where that is faster, falling back to the host as hub. | `nettest` with four peers at uneven latencies: delay follows the worst direct pair, not the sum through the host |
+
+## Phase N3: meeting point
+
+| ID | Model | Task | Check |
+|---|---|---|---|
+| N3.1 | Opus | **Protocol and budget.** Define the few messages: publish room, refresh, remove, list by game and region, introduce two players. Count requests per player per session and set limits so the free tier holds; write down the limits found at the time. | Budget table in the pull request |
+| N3.2 | Opus | **Cloudflare service** under `server/`: room list with expiry, introduction exchange, rate limits per address, size limits on every field, no chat and no game data. One-command deploy, documented for the project owner. The service address is a setting, so anyone can run their own. | Local emulator tests; deploy guide followed from scratch by Sonnet |
+| N3.3 | Opus | **Public relay fallback:** the same messages over a public relay network, signed with a per-session key so entries cannot be forged in transit. Used when the first service is unreachable or over its limit; results merged and de-duplicated. | Room listed through the fallback only is found and joined |
+| N3.4 | Sonnet | **Private rooms:** not listed anywhere. Joined by a short room code or a pasted link; the code alone is enough to connect when the host is directly reachable, so private rooms work with no meeting point at all. | Join by code with the service switched off |
+| N3.5 | Sonnet | **Regions and latency:** rooms carry a region; the list shows "near you" from measured ping, not from guessing. | List sorted correctly in the simulator |
+
+## Phase N4: rooms, tables and queues
+
+Opus designs the room protocol; Sonnet builds the screens on the Part 2 toolkit.
+
+| ID | Model | Task | Check |
+|---|---|---|---|
+| N4.1 | Opus | **Room model**, run by the room host and replicated to members: up to 16 members, several tables, each table one game with four seats (two per team). Room host migration when the host leaves, so the room survives. | Kill the host in a 6-member simulated room; room continues with the same tables |
+| N4.2 | Opus | **Table rules:** which game and revision, quarter length, CPU fills empty seats or not, winner stays or rotate, number of games, input delay automatic or fixed. Every member's ROM fingerprint is checked against the table's game before they can sit. | Mismatched ROM is refused with the reason |
+| N4.3 | Sonnet | **Queues:** join a table's queue as a single or as a pair; when a game ends, losers leave and the next in line sit, per the table rule. "Wait in practice" lets a queued player play offline until called, with a clear call-up and a countdown. | Scripted three-pair rotation over four games |
+| N4.4 | Opus | **Scripts per table:** the table lists its active Lua scripts and options (Part 3, task 1.7) before anyone sits; sitting accepts them. Fantasy Draft tables run the draft for the seated players. | Member with different local scripts sits and stays in sync |
+| N4.5 | Sonnet | **Screens:** Online home, Public rooms (quick join, create room, enter code, filters), Room (tables, members, chat, actions), Table options. Laid out as in the reference, in the per-game theme, with the button prompts along the bottom. | Screenshots in both languages; controller-only walk |
+| N4.6 | Opus | **Quick join:** the open room near you with a free seat for a game you own, else the shortest queue. | Simulator picks the expected room |
+| N4.7 | Opus | **Reconnect:** a dropped player's seat is held for a short time; the game pauses or the CPU takes over per table rule; on return they receive a save state and resume. | Drop and return in `nettest`; hashes equal afterwards |
+
+## Phase N5: spectating
+
+| ID | Model | Task | Check |
+|---|---|---|---|
+| N5.1 | Opus | A spectator receives a save state and then the merged input stream, a few seconds behind live, and runs the game locally. Join at any moment. Spectators never send anything the game depends on, so they cannot cause lag or a desync. | Join at frame 20 000; spectator hashes match the players' |
+| N5.2 | Opus | **Fan-out:** the table host serves a few spectators; further spectators are fed by earlier ones, so a popular game costs the players nothing extra. | 12 simulated spectators; host sends to at most the set number |
+| N5.3 | Sonnet | Spectator screen: score bug, who is in which seat, "watching" count, cycle between tables, "next game" seat request, optional delay increase for streamers. | Screenshots; controller-only |
+| N5.4 | Sonnet | **Replays:** a finished game is saved as its starting state plus inputs; watch later, with pause and fast forward. Tied to the exact ROM and script set. | Replay of a full game ends with the recorded final hash |
+
+## Phase N6: chat
+
+| ID | Model | Task | Check |
+|---|---|---|---|
+| N6.1 | Opus | **Transport:** room chat goes through the room host, game chat between the table's players and spectators, all on a channel separate from game inputs so chat can never stall or desync a game. Length and rate limits enforced by every receiver. | Flood from one peer: game unaffected, messages dropped |
+| N6.2 | Sonnet | **Room chat panel** as in the reference, with the on-screen keyboard from U4 and a physical keyboard when present. | Send and receive with a controller only |
+| N6.3 | Sonnet | **In-game chat:** an overlay that does not cover the play area in widescreen, opened with a button; a wheel of quick phrases (in both languages, translated on the receiving side) for controller players, plus free text. Separate switch to hide spectator chat while playing. | Screenshots at 4:3 and 16:9; quick phrase arrives in the receiver's language |
+| N6.4 | Sonnet | **Controls for the reader:** mute a player, hide all chat, word filter on by default, links never clickable. | Settings honoured in a scripted room |
+
+## Phase N7: names and moderation
+
+Nickname only, as decided. This phase makes that workable and states its limits.
+
+| ID | Model | Task | Check |
+|---|---|---|---|
+| N7.1 | Sonnet | Profile: nickname, region, favourite team, local win and loss record. Names are cleaned (length, characters, look-alike letters) and duplicates in a room get a suffix. | Two "JAM" in a room show as distinct |
+| N7.2 | Opus | Room host tools: kick, ban for the life of the room (by network address, the only handle available without identities), lock room, hand over host. Members: mute and block, remembered locally by name and address. | Kicked peer cannot rejoin the room in the simulator |
+| N7.3 | Opus | Public list protection: limits on rooms per address, name filter on room titles, and a report action that hides a room locally. | Abuse cases in the service tests |
+
+Limits to state in the docs: without accounts, a name can be copied by anyone and a
+banned player can return from a new address. If that becomes a real problem, a
+device key (silent, no sign-up) can be added later without changing the room protocol;
+N4.1 leaves a field for it.
+
+## Phase N8: release
+
+| ID | Model | Task |
+|---|---|---|
+| N8.1 | Opus | Soak: 16 simulated members, three tables, spectators, chat, two host migrations, a drop and reconnect, for an hour of game time; all hashes equal. |
+| N8.2 | Opus | Security pass over everything received from the network: every length checked, save states from peers validated before loading, no file paths or script code ever accepted from a peer (scripts are matched by hash, never transferred). |
+| N8.3 | Sonnet | Protocol version in every message, so old and new builds refuse each other politely. Direct IP play kept as a menu entry. |
+| N8.4 | Haiku | Online guide in both languages: rooms, codes, connection types and what to do about a strict one, how to run your own room list. |
+
+**Gate:** advisor sign-off, then a public test weekend before the release is tagged.
+
+## Phase N9: rollback (later, after a feasibility check)
+
+| ID | Model | Task |
+|---|---|---|
+| N9.1 | Opus | **Feasibility:** from the N1.3 numbers, can the emulator save every frame and re-run up to 8 frames inside one frame's time on a modest machine, with sound handled separately? Go or no-go, with figures. |
+| N9.2 | Opus | If go: rollback for two-player tables first, input prediction, sound and Lua overlay made rollback-safe; lockstep stays as the fallback and for four players until proven. |
+| N9.3 | Sonnet | Per-table choice of netcode, shown in the room; mixed tables refused. |
+
+## Part 4 risks
+
+* **Free tiers and public relays can change or vanish.** That is why there are two, why
+  the address is a setting, and why private codes and direct IP need neither.
+* **Strict NAT on both sides** has no free guaranteed fix. Peer relay covers most cases.
+* **Public chat with no accounts** invites abuse. The tools are local mute and block,
+  host kick, and filters. There is no global ban and nobody to appeal to.
+* **Save states are the critical path.** Spectator join, reconnect and rollback all wait
+  on N1; a device whose state is missed shows up as a desync minutes later.
+* **Four-player lockstep is only as good as the worst connection.** Rooms should be
+  regional; the list makes distance visible before a seat is taken.
+* **Not a copy of Ember.** The reference sets the feature list and feel; the protocol,
+  layout details and code are this project's own.
+
+---
+
+# Part 5 and later
 
 To be added.
