@@ -1,8 +1,8 @@
 # NBA JAM Recomp roadmap
 
 This file is the working plan for the project. Part 1 (widescreen and display), Part 2
-(interface overhaul), Part 3 (Lua scripts) and Part 4 (online) are specified below; later
-parts are added as they are agreed.
+(interface overhaul), Part 3 (Lua scripts), Part 4 (online) and Part 5 (releases and
+platforms) are specified below.
 
 **Order of work:**
 
@@ -13,6 +13,11 @@ parts are added as they are agreed.
 4. W2 to W6 (Part 1): true widescreen and ultrawide.
 5. Part 3 from Phase 1 on: Lua scripts.
 6. Part 4, phases N1 to N9: online rooms, spectating, queues and chat.
+7. Part 5, phases R1 to R8: installers, release pages, macOS and Android.
+
+R1 and R2 (automated builds and release pages) do not depend on anything else and are
+worth pulling forward to just after step 1, so that every earlier milestone ships
+through them. The rest of Part 5 stays last.
 
 The interface comes before the Lua work so that the mod, controller and pause menus are
 built once, in the new style. Each task names the model that should do it:
@@ -676,6 +681,126 @@ N4.1 leaves a field for it.
 
 ---
 
-# Part 5 and later
+# Part 5: Releases and platforms
 
-To be added.
+Goal: anyone can install the game on Windows, Linux, macOS or Android in a couple of
+clicks, see what changed in each version, and play online against any other platform.
+
+## What exists today
+
+* `.github/workflows/release.yml` is an empty file. Builds are made by hand.
+* `releases/` holds a Linux archive committed to the repository. The README also links a
+  Windows zip there, but `*.zip` is ignored by git, so that file is not in the repository.
+* Windows is cross-compiled from Linux with llvm-mingw; Linux is x86-64 only. There is no
+  macOS or Android build.
+* Settings, saves, screenshots and `roms/` all live next to the executable. That breaks
+  as soon as the program is installed somewhere it cannot write, and does not exist as a
+  concept on Android.
+* Versions are dates (2026.11.06). Nothing in the program knows its own version.
+
+## Decisions made here (change any of them)
+
+* **Free distribution only:** GitHub Releases for every platform. No store fees. The
+  consequences for macOS and Windows warnings are under "Limits" below.
+* **Windows:** an installer and a portable zip. **Linux:** an AppImage and a tar archive.
+  **macOS:** one universal app (Apple Silicon and Intel) in a disk image. **Android:** an
+  APK to sideload, 64-bit ARM, Android 8 or later.
+* **Cross-play means bit-identical emulation** on every processor and compiler, because
+  the netcode compares game state between players. This is tested, not assumed.
+
+## Phase R1: automated builds
+
+| ID | Model | Task | Check |
+|---|---|---|---|
+| R1.1 | Sonnet | Fill in `release.yml`: build Windows x64 and Linux x64 on every pull request, and on a version tag build, package and attach everything to a draft GitHub Release. Dependencies (SDL2, toolchains) are fetched and cached by the workflow, with pinned versions and checksums. | A test tag produces a draft release with both packages |
+| R1.2 | Sonnet | The program knows its version, build date and commit; shown in About, in the status line and in logs. Online protocol version (N8.3) is separate from the program version. | Version string matches the tag |
+| R1.3 | Sonnet | Remove built binaries from the repository (`releases/`), point the README at the Releases page, and add a check that fails a pull request containing ROM-like or archive files. | Repository holds no binaries; the check catches a test file |
+| R1.4 | Opus | **User data folder.** Settings, saves, screenshots, mods, replays and `roms/` move to the per-user location each system expects, behind one path layer. A `portable.txt` next to the executable keeps today's behaviour. First run of a new version offers to move an existing setup. | Installed copy under a read-only folder runs and saves; portable copy unchanged |
+
+## Phase R2: release pages and patch notes
+
+| ID | Model | Task | Check |
+|---|---|---|---|
+| R2.1 | Sonnet | `CHANGELOG.md` kept by a rule: every pull request adds a line under "Unreleased" in one of Added, Changed, Fixed, Online, Known issues. CI fails without it unless the pull request is marked as needing none. | CI check |
+| R2.2 | Haiku | At release time, turn "Unreleased" into the release page in English and Spanish: a short summary, the lists, which downloads are for which system, first-run steps, and whether this version can play online with the previous one. | Reviewed draft for the first automated release |
+| R2.3 | Sonnet | **News in the app:** the home screen shows the latest release notes and a "new version available" notice, read from the public GitHub Releases feed. It only informs; it never downloads or installs by itself. Can be switched off. Works offline without errors. | Screenshot; no network: no notice and no delay |
+| R2.4 | Haiku | README rewrite in both languages around what a player needs: download, where ROMs go, first run, controls, online, mods, troubleshooting. Build instructions move to `docs/BUILDING.md`. Kept current by R8.3. | Advisor read-through |
+
+## Phase R3: Windows installer
+
+| ID | Model | Task | Check |
+|---|---|---|---|
+| R3.1 | Sonnet | Installer built in CI with a free tool (Inno Setup): per-user install with no administrator prompt, Start menu and optional desktop shortcut, uninstaller that leaves the user's ROMs and saves unless asked. English and Spanish. | Silent install and uninstall on a CI Windows runner |
+| R3.2 | Sonnet | First-run ROM step: a screen with "Open my ROM folder" and drag-and-drop of files or zips onto the window, then a rescan. | Scripted first run from empty to a playable game |
+| R3.3 | Opus | Signing: apply to a free signing programme for open-source projects; if accepted, sign the executable and installer in CI. If not, document the Windows warning and publish checksums. | Decision recorded |
+
+## Phase R4: Linux packages
+
+| ID | Model | Task | Check |
+|---|---|---|---|
+| R4.1 | Sonnet | AppImage built on an old enough base to run on current distributions and on Steam Deck, with desktop entry and icon; the tar archive stays. | Runs in three distribution containers |
+| R4.2 | Sonnet | Linux ARM64 build, as the first non-x86 target and the first test of R5. | Runs under emulation in CI |
+
+## Phase R5: identical emulation everywhere
+
+Opus. The requirement that makes cross-play possible. Do this before the ports.
+
+| ID | Task | Check |
+|---|---|---|
+| R5.1 | **Audit** everything that feeds game state for behaviour that differs by processor or compiler: `char` signedness (unsigned on ARM Linux and Android), shifts of negative numbers, integer overflow, uninitialised memory, struct layout in save states, byte order assumptions, and any floating point (found in the board and sound code) that can reach the main CPU through the sound board's status or timing. | Written findings; each fixed or proven harmless |
+| R5.2 | **Golden hashes:** for each game with a buildable program ROM, a recorded input script and the state hash every 600 frames. CI runs it on x86-64 and ARM64, with GCC, Clang and MSVC-compatible builds, and compares. | Identical on every target |
+| R5.3 | Save states (N1) are byte-identical across platforms, so a phone can receive one from a PC. | Save on one target, load on another, hashes equal |
+| R5.4 | The Lua engine gives the same results everywhere: number formatting, integer and float behaviour, table iteration order never used for game writes. | Script test suite identical on every target |
+
+**Gate:** advisor reviews the audit. No port is called cross-play capable before R5.2 is
+green on its processor.
+
+## Phase R6: macOS
+
+| ID | Model | Task | Check |
+|---|---|---|---|
+| R6.1 | Opus | Native build for Apple Silicon and Intel as one universal app, built on a macOS CI runner. Rendering through the existing OpenGL path first; move to Metal (through SDL's GPU layer or a translation layer) only if OpenGL proves unreliable. Retina sizes handled as in W1.4. | App launches and renders on both processor types in CI |
+| R6.2 | Sonnet | Mac conventions: app bundle and icon, Command-key shortcuts, fullscreen and Spaces, data in Application Support, common controllers including PlayStation and Xbox pads over Bluetooth. | Checklist with screenshots |
+| R6.3 | Sonnet | Disk image with drag-to-Applications, built in CI. Ad-hoc signed so it runs on Apple Silicon. First-launch instructions for the unidentified-developer warning in the notes and README. | Image mounts and the app runs on a clean runner |
+| R6.4 | Opus | Online on macOS: local-network permission prompt handled, firewall prompt explained, R5.2 green, a Mac against Windows and Linux in `nettest`. | Cross-platform game, equal hashes |
+
+## Phase R7: Android
+
+| ID | Model | Task | Check |
+|---|---|---|---|
+| R7.1 | Opus | Native build (NDK, SDL's Android project, OpenGL ES 2 path that already exists) for 64-bit ARM, as an APK built in CI and signed with the project's own key. The key is created by the project owner and stored as a CI secret, never in the repository. | APK installs and reaches the picker on an emulator in CI |
+| R7.2 | Opus | **ROMs on Android:** files are chosen with the system file picker (single files, zips or a whole folder) and scanned by CRC as on desktop. No broad storage permission. | Import a zip on the emulator; game becomes available |
+| R7.3 | Sonnet | **Touch controls:** on-screen stick and three buttons plus start and coin, movable and resizable, with opacity setting, hidden automatically when a controller connects. Menus already take touch from U1.3. | Screenshots; layout saved and restored |
+| R7.4 | Sonnet | Controllers over Bluetooth and USB, including phone clip pads; several controllers for local multiplayer; TV boxes with a remote can at least navigate the menus. | Scripted input tests |
+| R7.5 | Opus | **Lifecycle:** pause and silence on switching away; state kept when the system reclaims the app (uses N1); online, leaving the app drops the seat cleanly with the N4.7 reconnect window instead of freezing the table. | Background and foreground on the emulator, offline and in `nettest` |
+| R7.6 | Opus | **Performance:** full speed on a mid-range phone with the simple shaders; CRT shaders stepped down automatically; battery saver frame pacing; audio latency measured. | Frame time log on two device classes |
+| R7.7 | Opus | **Online on Android:** Wi-Fi and mobile data, network change mid-game handled, R5.2 green on ARM64, a phone against Windows, macOS and Linux. | Four-platform game in `nettest`, equal hashes |
+| R7.8 | Sonnet | Phone layouts of the Part 2 and Part 4 screens: portrait refused or adapted, text sizes, safe areas around notches, on-screen keyboard instead of the system one where it fits. | Screenshots at three phone sizes |
+
+## Phase R8: first full release
+
+| ID | Model | Task |
+|---|---|---|
+| R8.1 | Opus | Cross-play matrix: every pair of Windows, Linux, macOS and Android plays a full game, and a four-player table with one of each, with equal hashes. Rooms list a mixed set of platforms; a platform icon shows next to each name. |
+| R8.2 | Sonnet | One tag builds everything: Windows installer and zip, Linux AppImage and archive, macOS disk image, Android APK, checksums, and the release page from R2.2. |
+| R8.3 | Haiku | README, in-app help and the online guide checked against the released build on each platform, in both languages. |
+
+**Gate:** advisor sign-off on the matrix, then publish.
+
+## Limits to expect
+
+* **macOS will warn that the developer is unidentified.** Removing that warning needs an
+  Apple Developer membership, which is a yearly fee. Without it, users approve the app
+  once in System Settings; recent macOS versions make this a few more clicks than before.
+* **Windows may show a SmartScreen warning** on an unsigned installer until R3.3 lands
+  a free signing route, if one is granted.
+* **Android is sideload only.** A store listing costs a one-time fee and brings review
+  policies that a ROM-dependent fan project may not pass. Users enable installs from
+  the browser once.
+* **iOS is not included.** It has no free route for distributing a native app.
+* **Phones on mobile data are usually behind strict NAT,** so they will be relayed through
+  a room member more often than PCs (N2.3), and Wi-Fi is the realistic way to play.
+* **Cross-play rests on R5.** One platform-dependent calculation anywhere in the
+  emulation shows up as desyncs between a phone and a PC and nowhere else.
+* **Touch controls are a compromise** for a game built around a stick and turbo button; a
+  controller is the intended way to play on Android.
