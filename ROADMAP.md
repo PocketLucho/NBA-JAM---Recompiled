@@ -759,7 +759,7 @@ clicks, see what changed in each version, and play online against any other plat
 | R2.3 | Sonnet | **News in the app:** the home screen shows the latest release notes and a "new version available" notice, read from the public GitHub Releases feed. It only informs; it never downloads or installs by itself. Can be switched off. Works offline without errors. | Screenshot; no network: no notice and no delay |
 | R2.4 | Haiku | README rewrite in both languages around what a player needs: download, where ROMs go, first run, controls, online, mods, troubleshooting. Build instructions move to `docs/BUILDING.md`. Kept current by R8.3. | Advisor read-through |
 
-**Status (R2):** R2.1 is done (the check failed a test pull request with no entry and passed it once labelled): `CHANGELOG.md` with an Unreleased part (Added, Changed, Fixed, Online, Known issues), and the `changelog` workflow fails a pull request that adds no line there unless it has the `no-changelog` label (`tools/ci/check_changelog.py`).
+**Status (R2):** R2.1 is done (the check failed a test pull request with no entry and passed it once labelled): `CHANGELOG.md` with an Unreleased part (Added, Changed, Fixed, Online, Known issues), and the `changelog` workflow fails a pull request that adds no line there unless it has the `no-changelog` label (`tools/ci/check_changelog.py`). R2.2 is written: `tools/ci/release_notes.py` builds the release page from the changelog (lists, downloads per system, first-run steps, online compatibility from the protocol version) and the release job uses it; `cut` turns Unreleased into a version section before tagging. Open: the owner reviews the first draft, and the job has not yet run on a tag.
 
 ## Phase R3: Windows installer
 

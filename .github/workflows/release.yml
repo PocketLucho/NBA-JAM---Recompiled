@@ -135,10 +135,20 @@ jobs:
     permissions:
       contents: write          # create the release
     steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0       # tags, to find the previous version
+
       - uses: actions/download-artifact@v4
         with:
           path: assets
           merge-multiple: true
+
+      - name: Release page from the changelog
+        run: |
+          python3 tools/ci/release_notes.py --self-test
+          python3 tools/ci/release_notes.py notes "${{ github.ref_name }}" -o release-notes.md
+          cat release-notes.md
 
       - name: Checksums
         working-directory: assets
@@ -151,4 +161,4 @@ jobs:
           gh release create "${{ github.ref_name }}" assets/* \
             --repo "${{ github.repository }}" --draft --verify-tag \
             --title "NBA JAM Recomp ${{ github.ref_name }}" \
-            --notes "Draft. Windows: .zip. Linux: .tar.gz. Bring your own ROMs (see README). Release notes are added in R2.2."
+            --notes-file release-notes.md
