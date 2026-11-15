@@ -4,7 +4,7 @@ __pycache__/
 dist/NBAJamRecomp/*.exe
 dist/NBAJamRecomp/data/
 dist/NBAJamRecomp/roms/*
-!dist/NBAJamRecomp/roms/LEEME_README.txt
+!dist/NBAJamRecomp/roms/README.txt
 dist/NBAJamRecomp/saves/
 dist/NBAJamRecomp/screenshots/
 dist/NBAJamRecomp/nbajam_recomp.ini

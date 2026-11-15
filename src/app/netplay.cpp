@@ -1,6 +1,5 @@
 // netplay.cpp - see netplay.h
 #include "netplay.h"
-#include "lang.h"
 
 #include <algorithm>
 #include <chrono>
@@ -66,12 +65,12 @@ bool udp_socket::open(u16 port, std::string &err)
 	close();
 #ifdef _WIN32
 	SOCKET s = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
-	if (s == INVALID_SOCKET) { err = tr("no se pudo crear el socket", "could not create the socket"); return false; }
+	if (s == INVALID_SOCKET) { err = "could not create the socket"; return false; }
 	u_long nb = 1; ioctlsocket(s, FIONBIO, &nb);
 	m_fd = (long long)s;
 #else
 	int s = socket(AF_INET, SOCK_DGRAM, 0);
-	if (s < 0) { err = tr("no se pudo crear el socket", "could not create the socket"); return false; }
+	if (s < 0) { err = "could not create the socket"; return false; }
 	fcntl(s, F_SETFL, fcntl(s, F_GETFL) | O_NONBLOCK);
 	m_fd = s;
 #endif
@@ -83,7 +82,7 @@ bool udp_socket::open(u16 port, std::string &err)
 	a.sin_port = htons(port);
 	if (bind(decltype(socket(0, 0, 0))(m_fd), (sockaddr *)&a, sizeof(a)) != 0)
 	{
-		err = tr("no se pudo abrir el puerto UDP ", "could not open UDP port ") + std::to_string(port) + tr(" (en uso?)", " (in use?)");
+		err = "could not open UDP port " + std::to_string(port) + " (in use?)";
 		close();
 		return false;
 	}
@@ -131,7 +130,7 @@ bool udp_socket::resolve(const std::string &host, u16 port, net_addr &out, std::
 	hints.ai_socktype = SOCK_DGRAM;
 	if (getaddrinfo(host.c_str(), nullptr, &hints, &res) != 0 || !res)
 	{
-		err = tr("no se encuentra la direccion '", "address not found: '") + host + "'";
+		err = "address not found: '" + host + "'";
 		return false;
 	}
 	out.ip = ntohl(((sockaddr_in *)res->ai_addr)->sin_addr.s_addr);
@@ -280,7 +279,7 @@ std::vector<std::string> netplay::peer_list() const
 {
 	std::vector<std::string> v;
 	for (auto &p : m_peers)
-		v.push_back("J" + std::to_string(p.slot + 1) + "  " + net_addr_str(p.addr) + "  " + std::to_string(p.ping) + " ms" + (p.ready ? tr("  listo", "  ready") : ""));
+		v.push_back("J" + std::to_string(p.slot + 1) + "  " + net_addr_str(p.addr) + "  " + std::to_string(p.ping) + " ms" + (p.ready ? "  ready" : ""));
 	return v;
 }
 
@@ -414,7 +413,7 @@ void netplay::handle(const net_addr &from, const u8 *p, int n)
 				if (ver != VERSION || m_phase != phase::lobby || m_nplayers >= 4)
 				{
 					w.u8_('r'); w.u8_(MAGIC); w.u32_(now); w.u32_(tsend);
-					w.str(ver != VERSION ? "version distinta de NBA JAM Recomp / different NBA JAM Recomp version" : m_phase != phase::lobby ? "la partida ya ha empezado / the game has already started" : "la partida esta llena / the game is full (4)");
+					w.str(ver != VERSION ? "different NBA JAM Recomp version" : m_phase != phase::lobby ? "the game has already started" : "the game is full (4)");
 					send_raw(from, w.b);
 					return;
 				}
@@ -436,7 +435,7 @@ void netplay::handle(const net_addr &from, const u8 *p, int n)
 		if (techo) pp->ping = (pp->ping * 3 + int(now - techo)) / 4;
 		if (type == 'b')
 		{
-			std::string who = tr("J", "P") + std::to_string(pp->slot + 1);
+			std::string who = "P" + std::to_string(pp->slot + 1);
 			if (m_phase == phase::lobby)
 			{
 				// renumber remaining clients
@@ -444,7 +443,7 @@ void netplay::handle(const net_addr &from, const u8 *p, int n)
 				m_nplayers = 1;
 				for (auto &q : m_peers) q.slot = m_nplayers++;
 			}
-			else stop((tr("el jugador ", "player ") + who + tr(" se ha desconectado", " has disconnected")).c_str());
+			else stop(("player " + who + " has disconnected").c_str());
 			return;
 		}
 		if (type == 'a')
@@ -490,8 +489,8 @@ void netplay::handle(const net_addr &from, const u8 *p, int n)
 	if (techo) m_ping = (m_ping * 3 + int(now - techo)) / 4;
 	switch (type)
 	{
-		case 'r': stop((tr("rechazado: ", "rejected: ") + r.str()).c_str()); return;
-		case 'b': stop(m_phase == phase::running ? tr("el anfitrion ha cerrado la partida", "the host has closed the game") : tr("el anfitrion ha cancelado", "the host has cancelled")); return;
+		case 'r': stop(("rejected: " + r.str()).c_str()); return;
+		case 'b': stop(m_phase == phase::running ? "the host has closed the game" : "the host has cancelled"); return;
 		case 'w': m_slot = r.u8_(); m_nplayers = r.u8_(); break;
 		case 'l': m_nplayers = r.u8_(); m_slot = r.u8_(); break;
 		case 's':
@@ -565,7 +564,7 @@ void netplay::tick_host(u32 now)
 				for (auto &q : m_peers) q.slot = m_nplayers++;
 				return;
 			}
-			stop((tr("se ha perdido la conexion con J", "lost the connection with P") + std::to_string(m_peers[i].slot + 1)).c_str());
+			stop(("lost the connection with P" + std::to_string(m_peers[i].slot + 1)).c_str());
 			return;
 		}
 
@@ -627,7 +626,7 @@ void netplay::tick_client(u32 now)
 	peer &h = m_peers[0];
 	if (now - h.last_seen > TIMEOUT_MS)
 	{
-		stop(m_slot < 0 ? tr("no hay respuesta del anfitrion (IP, puerto o cortafuegos?)", "no answer from the host (IP, port or firewall?)") : tr("se ha perdido la conexion con el anfitrion", "lost the connection with the host"));
+		stop(m_slot < 0 ? "no answer from the host (IP, port or firewall?)" : "lost the connection with the host");
 		return;
 	}
 	bool fast = now - m_last_tick >= 8;

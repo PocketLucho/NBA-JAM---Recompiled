@@ -1,6 +1,5 @@
 # NBA JAM Recomp
 
-*Castellano: [README.es.md](README.es.md)*
 
 Midway's NBA JAM arcade saga, **rebuilt from its original source code** and played in one
 Windows application with a game picker, CRT shaders, widescreen modes and online play.
@@ -45,7 +44,7 @@ for the per-game list. Games built from source with `tools/build_roms.sh` (below
 
 ## Features
 
-* Game picker ordered by release date, Spanish / English interface
+* Game picker ordered by release date
 * OpenGL 2.1 / GLES 2 shaders: sharp, smooth, scanlines, CRT, curved CRT; integer
   (pixel perfect) scaling; 4:3, 16:9, 16:10 or fill
 * Online play for up to 4 players: lockstep over UDP, with ROM fingerprint and

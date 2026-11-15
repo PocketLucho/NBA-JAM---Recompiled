@@ -4,7 +4,6 @@
 #include "paths.h"
 #include "games.h"
 #include "font.h"
-#include "lang.h"
 #include "miniz.h"
 #include "gl_present.h"
 #include "netplay.h"
@@ -51,7 +50,6 @@ struct config
 	float volume = 0.8f;
 	int net_port = 7845;
 	int net_delay = 4;
-	int lang = -1;                // -1 = system language, 0 = Spanish, 1 = English
 	std::string net_host;
 	std::string pad_profile[4] = { "Default", "Default", "Default", "Default" };   // controller profile of each player
 	std::map<std::string, std::array<std::string, 4>> game_profiles;   // per-game override ("" = use pad_profile)
@@ -81,8 +79,7 @@ static SDL_Scancode *key_slot(key_map &k, int i)
 static void save_config(const std::string &path, config &c)
 {
 	std::ofstream f(path);
-	f << "# NBA JAM Recomp - configuration / configuracion\n[general]\n# language: es = castellano, en = English (also in the main menu)\nlanguage="
-	  << (c.lang == 1 ? "en" : c.lang == 0 ? "es" : "auto") << "\n\n[video]\nscale=" << c.scale << "\nfullscreen=" << c.fullscreen
+	f << "# NBA JAM Recomp - configuration\n[video]\nscale=" << c.scale << "\nfullscreen=" << c.fullscreen
 	  << "\n# shader: 0 nitido, 1 suavizado, 2 scanlines, 3 CRT, 4 CRT curvo\nshader=" << c.shader
 	  << "\n# aspect: 0 = 4:3 original, 1 = 16:9 panoramico, 2 = 16:10, 3 = llenar ventana\naspect=" << c.aspect << "\ninteger_scale=" << c.integer_scale << "\nscanline_strength=" << c.scan_strength
 	  << "\n# opengl=0 usa el renderizador SDL basico (sin shaders)\nopengl=" << c.use_opengl
@@ -115,7 +112,7 @@ static void load_config(const std::string &path, config &c)
 		auto eq = line.find('=');
 		if (eq == std::string::npos) continue;
 		std::string k = trim(line.substr(0, eq)), v = trim(line.substr(eq + 1));
-		if (k == "language") c.lang = v == "en" ? 1 : v == "es" ? 0 : -1;
+		if (k == "language") continue;       // from older versions: the program is English only for now
 		else if (k == "scale") c.scale = std::clamp(atoi(v.c_str()), 1, 8);
 		else if (k == "fullscreen") c.fullscreen = atoi(v.c_str()) != 0;
 		else if (k == "smooth") c.smooth = atoi(v.c_str()) != 0;
@@ -218,10 +215,9 @@ struct canvas
 
 static const char *shader_name(int i)
 {
-	static const char *es[] = { "Nitido (pixel perfect)", "Suavizado", "Scanlines", "CRT", "CRT curvo" };
 	static const char *en[] = { "Sharp (pixel perfect)", "Smooth", "Scanlines", "CRT", "Curved CRT" };
 	i = std::clamp(i, 0, kNumShaders - 1);
-	return g_lang_en ? en[i] : es[i];
+	return en[i];
 }
 
 // ---------------------------------------------------------------------------
@@ -345,7 +341,7 @@ void app::open_window()
 		if (m_win && m_gl.init(m_win, err)) return;
 		if (m_win) SDL_DestroyWindow(m_win);
 		m_win = nullptr;
-		message(tr("OpenGL no disponible: sin shaders (", "OpenGL not available: no shaders (") + err.substr(0, 60) + ")", 8000);
+		message("OpenGL not available: no shaders (" + err.substr(0, 60) + ")", 8000);
 		SDL_Log("OpenGL: %s", err.c_str());
 	}
 	m_win = SDL_CreateWindow("NBA JAM Recomp", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, w, h, SDL_WINDOW_RESIZABLE | fs);
@@ -420,7 +416,7 @@ void app::poll_events()
 					import_result r;
 					bool ok = m_profiles.import_file(e.drop.file, m, r);
 					if (ok && r.setup) apply_setup(r);
-					message(ok ? tr("Importado: ", "Imported: ") + m + (r.setup ? tr(" (configuracion aplicada)", " (setup applied)") : "") : tr("Importar: ", "Import: ") + m, 5000);
+					message(ok ? "Imported: " + m + (r.setup ? " (setup applied)" : "") : "Import: " + m, 5000);
 					SDL_free(e.drop.file);
 				}
 				break;
@@ -486,30 +482,29 @@ void app::poll_events()
 				if (k == SDLK_F4)
 				{
 					m_cfg.shader = (m_cfg.shader + 1) % kNumShaders;
-					message(std::string("Video: ") + shader_name(m_cfg.shader) + (m_gl.ok() ? "" : tr(" (sin OpenGL: aproximado)", " (no OpenGL: approximate)")));
+					message(std::string("Video: ") + shader_name(m_cfg.shader) + (m_gl.ok() ? "" : " (no OpenGL: approximate)"));
 				}
 				if (k == SDLK_F5)
 				{
 					m_cfg.integer_scale = !m_cfg.integer_scale;
-					message(m_cfg.integer_scale ? tr("Escalado entero (pixel perfect): SI", "Integer scaling (pixel perfect): ON") : tr("Escalado entero: NO (llenar pantalla)", "Integer scaling: OFF (fill screen)"));
+					message(m_cfg.integer_scale ? "Integer scaling (pixel perfect): ON" : "Integer scaling: OFF (fill screen)");
 				}
 				if (k == SDLK_F7)
 				{
-					static const char *es[4] = { "4:3 (original)", "16:9 panoramico", "16:10 panoramico", "llenar la ventana" };
 					static const char *en[4] = { "4:3 (original)", "16:9 widescreen", "16:10 widescreen", "fill the window" };
 					m_cfg.aspect = (m_cfg.aspect + 1) % 4;
-					message(std::string(tr("Aspecto: ", "Aspect: ")) + (g_lang_en ? en : es)[m_cfg.aspect]);
+					message(std::string("Aspect: ") + en[m_cfg.aspect]);
 				}
 				if (k == SDLK_F6)
 				{
 					m_cfg.scan_strength = m_cfg.scan_strength >= 0.95f ? 0.2f : m_cfg.scan_strength + 0.2f;
-					message(tr("Intensidad de scanlines: ", "Scanline strength: ") + std::to_string(int(m_cfg.scan_strength * 100 + 0.5f)) + "%");
+					message("Scanline strength: " + std::to_string(int(m_cfg.scan_strength * 100 + 0.5f)) + "%");
 				}
-				if (k == SDLK_MINUS || k == SDLK_KP_MINUS) { m_cfg.volume = std::max(0.0f, m_cfg.volume - 0.1f); message(tr("Volumen ", "Volume ") + std::to_string(int(m_cfg.volume * 100 + 0.5f)) + "%", 1200); }
-				if (k == SDLK_EQUALS || k == SDLK_PLUS || k == SDLK_KP_PLUS) { m_cfg.volume = std::min(1.0f, m_cfg.volume + 0.1f); message(tr("Volumen ", "Volume ") + std::to_string(int(m_cfg.volume * 100 + 0.5f)) + "%", 1200); }
+				if (k == SDLK_MINUS || k == SDLK_KP_MINUS) { m_cfg.volume = std::max(0.0f, m_cfg.volume - 0.1f); message("Volume " + std::to_string(int(m_cfg.volume * 100 + 0.5f)) + "%", 1200); }
+				if (k == SDLK_EQUALS || k == SDLK_PLUS || k == SDLK_KP_PLUS) { m_cfg.volume = std::min(1.0f, m_cfg.volume + 0.1f); message("Volume " + std::to_string(int(m_cfg.volume * 100 + 0.5f)) + "%", 1200); }
 				if (m_mach && !m_net_game)
 				{
-					if (k == SDLK_F2) { m_test = !m_test; message(m_test ? tr("Interruptor TEST: ON (menu de servicio)", "TEST switch: ON (service menu)") : tr("Interruptor TEST: OFF", "TEST switch: OFF"), 2000); }
+					if (k == SDLK_F2) { m_test = !m_test; message(m_test ? "TEST switch: ON (service menu)" : "TEST switch: OFF", 2000); }
 					if (k == SDLK_F3) { m_mach->reset(); message("Reset", 1500); }
 					if (k == SDLK_p || k == SDLK_PAUSE) m_paused = !m_paused;
 				}
@@ -548,7 +543,7 @@ bool app::start_game(int index, bool net_client)
 {
 	const game_info &g = game_list()[size_t(index)];
 	std::string err;
-	SDL_SetWindowTitle(m_win, (std::string(tr("NBA JAM Recomp - cargando ", "NBA JAM Recomp - loading ")) + g.title + "...").c_str());
+	SDL_SetWindowTitle(m_win, (std::string("NBA JAM Recomp - loading ") + g.title + "...").c_str());
 	m_mach = m_cat->create(g, err);
 	if (!m_mach)
 	{
@@ -570,14 +565,14 @@ bool app::start_game(int index, bool net_client)
 	m_paused = false;
 	m_test = false;
 	m_screen = screen::game;
-	SDL_SetWindowTitle(m_win, (std::string("NBA JAM Recomp - ") + g.title + (m_net_game ? tr("   [EN RED]", "   [ONLINE]") : tr("   [Esc: menu  F1: ayuda]", "   [Esc: menu  F1: help]"))).c_str());
+	SDL_SetWindowTitle(m_win, (std::string("NBA JAM Recomp - ") + g.title + (m_net_game ? "   [ONLINE]" : "   [Esc: menu  F1: help]")).c_str());
 	SDL_ClearQueuedAudio(m_audio);
-	if (!m_net_game) message(tr("Pulsa F1 para ver los controles", "Press F1 to see the controls"), 3000);
+	if (!m_net_game) message("Press F1 to see the controls", 3000);
 	if (m_mods.active_count() > 0)
 	{
 		std::string log;
 		for (const auto &l : m_mods.take_log()) log += (log.empty() ? "" : "  ") + l;
-		message(tr("Mods Lua activos: ", "Lua mods active: ") + std::to_string(m_mods.active_count()) + (log.empty() ? "" : "  " + log), 5000);
+		message("Lua mods active: " + std::to_string(m_mods.active_count()) + (log.empty() ? "" : "  " + log), 5000);
 	}
 	else
 	{
@@ -601,7 +596,7 @@ void app::stop_game()
 		std::string err = m_net.error();
 		m_net.stop();
 		m_net_game = false;
-		if (!err.empty()) message(tr("Red: ", "Network: ") + err, 6000);
+		if (!err.empty()) message("Network: " + err, 6000);
 	}
 	m_screen = screen::menu;
 	SDL_ClearQueuedAudio(m_audio);
@@ -615,46 +610,46 @@ void app::draw_overlay(canvas &cv)
 		cv.blend(0, 0, cv.w, cv.h, 0xff000000, 200);
 		int y = 6;
 		auto line = [&](const std::string &s, u32 c = 0xffffffff) { cv.text(8, y, s, c); y += 11; };
-		line(tr("CONTROLES (teclado / mando)", "CONTROLS (keyboard / pad)"), 0xffffd040);
+		line("CONTROLS (keyboard / pad)", 0xffffd040);
 		y += 2;
-		line(tr("            tiro/pase/turbo  start moneda", "            shoot/pass/turbo start coin"), 0xffb0b0b0);
-		line(tr("J1 flechas  Z / X / C         1     5", "P1 arrows   Z / X / C         1     5"));
-		line(tr("J2 WASD     F / G / V         2     6", "P2 WASD     F / G / V         2     6"));
-		line(tr("J3 num8462  n0 / n. / nIntro 3     7", "P3 num8462  n0 / n. / nEnter 3     7"));
-		line(tr("J4 IJKL     H / ; / U         4     8", "P4 IJKL     H / ; / U         4     8"));
+		line("            shoot/pass/turbo start coin", 0xffb0b0b0);
+		line("P1 arrows   Z / X / C         1     5");
+		line("P2 WASD     F / G / V         2     6");
+		line("P3 num8462  n0 / n. / nEnter 3     7");
+		line("P4 IJKL     H / ; / U         4     8");
 		{
 			const pad_profile &pp = active_profile(0);
-			line(tr("Mando J1 (", "Pad P1 (") + pp.name + "): " + pp.action_text(4) + tr(" tiro ", " shoot ") + pp.action_text(5) + tr(" pase", " pass"));
+			line("Pad P1 (" + pp.name + "): " + pp.action_text(4) + " shoot " + pp.action_text(5) + " pass");
 		}
 		y += 3;
-		line(tr("Esc  volver al menu        P  pausa", "Esc  back to menu          P  pause"), 0xffa0e0ff);
-		line(tr("F2   interruptor TEST      F3 reset", "F2   TEST switch           F3 reset"), 0xffa0e0ff);
-		line(tr("F4   video: nitido/suave/scanl./CRT", "F4   video: sharp/smooth/scanl./CRT"), 0xffa0e0ff);
-		line(tr("F5   escalado entero       F6 int. scanlines", "F5   integer scaling       F6 scanline str."), 0xffa0e0ff);
-		line(tr("F7   aspecto: 4:3 / 16:9 / 16:10 / llenar", "F7   aspect: 4:3 / 16:9 / 16:10 / fill"), 0xffa0e0ff);
-		line(tr("F11  pantalla completa     - / +  volumen", "F11  fullscreen            - / +  volume"), 0xffa0e0ff);
-		line(tr("F12  captura de pantalla   9  credito serv.", "F12  screenshot            9  service credit"), 0xffa0e0ff);
+		line("Esc  back to menu          P  pause", 0xffa0e0ff);
+		line("F2   TEST switch           F3 reset", 0xffa0e0ff);
+		line("F4   video: sharp/smooth/scanl./CRT", 0xffa0e0ff);
+		line("F5   integer scaling       F6 scanline str.", 0xffa0e0ff);
+		line("F7   aspect: 4:3 / 16:9 / 16:10 / fill", 0xffa0e0ff);
+		line("F11  fullscreen            - / +  volume", 0xffa0e0ff);
+		line("F12  screenshot            9  service credit", 0xffa0e0ff);
 		y += 3;
-		line(std::string("Video: ") + shader_name(m_cfg.shader) + (m_cfg.integer_scale ? tr(", entero", ", integer") : ""), 0xffb0b0b0);
-		line(tr("Mandos: menu Controles. Teclas: nbajam_recomp.ini", "Pads: Controls menu. Keys: nbajam_recomp.ini"), 0xffb0b0b0);
+		line(std::string("Video: ") + shader_name(m_cfg.shader) + (m_cfg.integer_scale ? ", integer" : ""), 0xffb0b0b0);
+		line("Pads: Controls menu. Keys: nbajam_recomp.ini", 0xffb0b0b0);
 	}
 	if (m_net_game)
 	{
-		std::string tag = tr("RED J", "NET P") + std::to_string(m_net.local_slot() + 1) + " " + std::to_string(m_net.ping_ms()) + "ms";
+		std::string tag = "NET P" + std::to_string(m_net.local_slot() + 1) + " " + std::to_string(m_net.ping_ms()) + "ms";
 		cv.blend(cv.w - cv.text_w(tag) - 6, 0, cv.text_w(tag) + 6, 10, 0xff000000, 140);
 		cv.text(cv.w - cv.text_w(tag) - 3, 1, tag, 0xff80ff80, 1, false);
 		if (m_net.desynced())
 		{
 			cv.blend(0, 12, cv.w, 12, 0xff800000, 200);
-			cv.text_wrap(4, 14, tr("DESINCRONIZACION: reinicia la partida en red", "DESYNC: restart the online game"), 0xffffffff);
+			cv.text_wrap(4, 14, "DESYNC: restart the online game", 0xffffffff);
 		}
 		if (m_net.stall_ms() > 400)
 			{
-				std::string wt = tr("Esperando a la red...", "Waiting for the network...");
+				std::string wt = "Waiting for the network...";
 				cv.text(cv.w / 2 - cv.text_w(wt) / 2, cv.h / 2 - 4, wt, 0xffffff40);
 			}
 	}
-	if (m_paused) { std::string pt = tr("PAUSA", "PAUSED"); cv.text(cv.w / 2 - cv.text_w(pt, 2) / 2, cv.h / 2 - 8, pt, 0xffffff40, 2); }
+	if (m_paused) { std::string pt = "PAUSED"; cv.text(cv.w / 2 - cv.text_w(pt, 2) / 2, cv.h / 2 - 8, pt, 0xffffff40, 2); }
 	if (!m_message.empty() && SDL_GetTicks() < m_message_until)
 	{
 		cv.blend(0, cv.h - 14, cv.w, 14, 0xff000000, 170);
@@ -687,7 +682,7 @@ void app::save_screenshot(const u32 *px, int w, int h)
 	}
 	size_t len = 0;
 	void *png = tdefl_write_image_to_png_file_in_memory(rgb.data(), w, h, 3, &len);
-	if (!png) { message(tr("No se pudo crear la captura", "Could not create the screenshot"), 3000); return; }
+	if (!png) { message("Could not create the screenshot", 3000); return; }
 	std::time_t t = std::time(nullptr);
 	char stamp[32];
 	std::strftime(stamp, sizeof(stamp), "%Y%m%d_%H%M%S", std::localtime(&t));
@@ -700,8 +695,8 @@ void app::save_screenshot(const u32 *px, int w, int h)
 	}
 	bool ok = write_whole_file(path, std::vector<u8>(static_cast<u8 *>(png), static_cast<u8 *>(png) + len));
 	mz_free(png);
-	message(ok ? std::string(tr("Captura guardada: screenshots/", "Screenshot saved: screenshots/")) + path.substr(dir.size() + 1)
-	           : std::string(tr("No se pudo guardar ", "Could not save ")) + path, 3000);
+	message(ok ? std::string("Screenshot saved: screenshots/") + path.substr(dir.size() + 1)
+	           : std::string("Could not save ") + path, 3000);
 }
 
 // message bar of the menu screens (two lines, word-wrapped)
@@ -715,8 +710,8 @@ void app::menu_frame()
 {
 	const auto &list = game_list();
 	int ng = int(list.size());
-	int n = ng + 4;                       // + Lua mods, language, controls, about
-	const int i_mods = ng, i_lang = ng + 1, i_controls = ng + 2, i_about = ng + 3;
+	int n = ng + 3;                       // + Lua mods, controls, about
+	const int i_mods = ng, i_controls = ng + 1, i_about = ng + 2;
 	if (m_menu_up) m_sel = (m_sel + n - 1) % n;
 	if (m_menu_down) m_sel = (m_sel + 1) % n;
 	if (m_menu_back) { m_quit = true; return; }
@@ -728,14 +723,7 @@ void app::menu_frame()
 		m_screen = screen::mods;
 		return;
 	}
-	if (m_sel == i_lang && (m_menu_ok || m_menu_left || m_menu_right))
-	{
-		g_lang_en = !g_lang_en;
-		m_cfg.lang = g_lang_en ? 1 : 0;
-		refresh_availability();
-		save_config(m_cfgpath, m_cfg);
-	}
-	else if (m_menu_ok)
+	if (m_menu_ok)
 	{
 		if (m_sel == i_controls) { m_screen = screen::controls; m_ctl_sel = 0; return; }
 		if (m_sel == i_about) { m_screen = screen::about; return; }
@@ -747,7 +735,7 @@ void app::menu_frame()
 	draw_background(cv);
 	cv.text(cv.w / 2 - cv.text_w("NBA JAM", 4) / 2, 8, "NBA JAM", 0xffff8020, 4);
 	cv.text(cv.w / 2 - cv.text_w("RECOMP", 2) / 2, 42, "RECOMP", 0xffffffff, 2);
-	std::string pick = tr("Elige un juego", "Choose a game");
+	std::string pick = "Choose a game";
 	cv.text(cv.w / 2 - cv.text_w(pick) / 2, 61, pick, 0xffc0c0c0);
 
 	int y0 = 76;
@@ -761,7 +749,7 @@ void app::menu_frame()
 		cv.text(20, y, g.title, col);
 		cv.text(cv.w - 20 - cv.text_w(g.hardware) - (g.from_source ? 30 : 0), y, g.hardware, m_avail[size_t(i)] ? 0xffc0a0ff : 0xff606060, 1, false);
 		if (g.from_source) cv.text(cv.w - 44, y, "SRC", 0xff60ff60);
-		cv.text(20, y + 10, std::string(g_lang_en ? g.subtitle_en : g.subtitle).substr(0, 46), m_avail[size_t(i)] ? 0xffa0c8ff : 0xff606060, 1, false);
+		cv.text(20, y + 10, std::string(g.subtitle).substr(0, 46), m_avail[size_t(i)] ? 0xffa0c8ff : 0xff606060, 1, false);
 	}
 	{
 		int y = y0 + ng * 25 + 2;
@@ -769,26 +757,21 @@ void app::menu_frame()
 		if (sel) cv.blend(12, y - 3, cv.w - 24, 14, 0xffffa020, 90);
 		int on = 0;
 		for (const auto &md : m_mods.mods()) on += md.enabled && md.error.empty();
-		cv.text(20, y, std::string(tr("Mods Lua", "Lua mods")) + "  (" + std::to_string(on) + "/" + std::to_string(m_mods.mods().size()) + tr(" activos)", " on)"),
+		cv.text(20, y, std::string("Lua mods") + "  (" + std::to_string(on) + "/" + std::to_string(m_mods.mods().size()) + " on)",
 		        sel ? 0xffffffff : 0xffc8d8ff);
-		y += 14;
-		sel = m_sel == i_lang;
-		if (sel) cv.blend(12, y - 3, cv.w - 24, 14, 0xffffa020, 90);
-		cv.text(20, y, std::string("Idioma / Language: ") + (g_lang_en ? "English" : "Castellano"), sel ? 0xffffffff : 0xffc8d8ff);
-		if (sel) cv.text(cv.w - 36, y, "< >", 0xffffffff);
 		y += 14;
 		sel = m_sel == i_controls;
 		if (sel) cv.blend(12, y - 3, cv.w - 24, 14, 0xffffa020, 90);
-		cv.text(20, y, tr("Controles (mandos y perfiles)", "Controls (pads and profiles)"), sel ? 0xffffffff : 0xffc8d8ff);
+		cv.text(20, y, "Controls (pads and profiles)", sel ? 0xffffffff : 0xffc8d8ff);
 		y += 14;
 		sel = m_sel == i_about;
 		if (sel) cv.blend(12, y - 3, cv.w - 24, 14, 0xffffa020, 90);
-		cv.text(20, y, tr("Acerca de NBA JAM Recomp", "About NBA JAM Recomp"), sel ? 0xffffffff : 0xffc8d8ff);
+		cv.text(20, y, "About NBA JAM Recomp", sel ? 0xffffffff : 0xffc8d8ff);
 	}
 	std::string ver = std::string("v") + app_version();
 	cv.text(cv.w - 8 - cv.text_w(ver), cv.h - 33, ver, 0xff8080a0);
-	cv.text(8, cv.h - 21, tr("Enter/A: jugar   N/Y: juego en red", "Enter/A: play   N/Y: online game"), 0xffb0b0b0);
-	cv.text(8, cv.h - 11, tr("Esc: salir  F4: video  F11: pant. completa", "Esc: quit  F4: video  F11: fullscreen"), 0xffb0b0b0);
+	cv.text(8, cv.h - 21, "Enter/A: play   N/Y: online game", 0xffb0b0b0);
+	cv.text(8, cv.h - 11, "Esc: quit  F4: video  F11: fullscreen", 0xffb0b0b0);
 	if (!m_message.empty() && SDL_GetTicks() < m_message_until) menu_message(cv, m_message);
 	present(cv.px.data(), cv.w, cv.h, false);
 	SDL_Delay(16);
@@ -817,13 +800,12 @@ void app::mods_frame()
 
 	canvas cv(400, 300);
 	draw_background(cv);
-	std::string title = tr("MODS LUA", "LUA MODS");
+	std::string title = "LUA MODS";
 	cv.text(cv.w / 2 - cv.text_w(title, 2) / 2, 8, title, 0xffff8020, 2);
-	std::string sub = tr("Scripts .lua de la carpeta mods/", ".lua scripts in the mods/ folder");
+	std::string sub = ".lua scripts in the mods/ folder";
 	cv.text(cv.w / 2 - cv.text_w(sub) / 2, 28, sub, 0xffc0c0c0);
 	if (n == 0)
-		cv.text_wrap(20, 60, tr("No hay mods. Copia scripts .lua en la carpeta mods/ junto al programa.",
-		                        "No mods found. Put .lua scripts in the mods/ folder next to the program."), 0xffffe080);
+		cv.text_wrap(20, 60, "No mods found. Put .lua scripts in the mods/ folder next to the program.", 0xffffe080);
 	// scroll so the selection stays visible
 	const int rows = 9, y0 = 46;
 	int first = std::clamp(m_mod_sel - rows + 1, 0, std::max(0, n - rows));
@@ -835,15 +817,15 @@ void app::mods_frame()
 		if (sel) cv.blend(12, y - 3, cv.w - 24, 23, 0xffffa020, 90);
 		u32 col = !m.error.empty() ? 0xffff6060 : sel ? 0xffffffff : 0xffffe080;
 		cv.text(20, y, checkbox(m.enabled && m.error.empty()) + m.name.substr(0, 30), col);
-		std::string scope = !m.error.empty() ? tr("ERROR", "ERROR")
-		                  : m.all_games ? tr("todos los juegos", "all games")
-		                  : std::to_string(m.games.size()) + tr(" juego(s)", " game(s)");
+		std::string scope = !m.error.empty() ? "ERROR"
+		                  : m.all_games ? "all games"
+		                  : std::to_string(m.games.size()) + " game(s)";
 		cv.text(cv.w - 20 - cv.text_w(scope), y, scope, m.error.empty() ? 0xffc0a0ff : 0xffff6060, 1, false);
 		std::string desc = m.error.empty() ? m.description : m.error;
 		cv.text(52, y + 10, desc.substr(0, 41), 0xffa0c8ff, 1, false);
 	}
-	cv.text(8, cv.h - 21, tr("Izq/Der: activar   Enter: juegos y opciones", "Left/Right: on/off   Enter: games & options"), 0xffb0b0b0);
-	cv.text(8, cv.h - 11, tr("Esc: volver (se guarda en mods.ini)", "Esc: back (saved to mods.ini)"), 0xffb0b0b0);
+	cv.text(8, cv.h - 21, "Left/Right: on/off   Enter: games & options", 0xffb0b0b0);
+	cv.text(8, cv.h - 11, "Esc: back (saved to mods.ini)", 0xffb0b0b0);
 	if (!m_message.empty() && SDL_GetTicks() < m_message_until) menu_message(cv, m_message);
 	present(cv.px.data(), cv.w, cv.h, false);
 	SDL_Delay(16);
@@ -892,7 +874,7 @@ void app::mod_detail_frame()
 				}
 				m.set_game(g.id, !m.game_checked(g.id));
 			}
-			else message(tr("Este mod no es compatible con ese juego", "This mod does not support that game"), 2000);
+			else message("This mod does not support that game", 2000);
 		}
 		m_mods.save();
 	}
@@ -914,25 +896,25 @@ void app::mod_detail_frame()
 		}
 		y += 14;
 	};
-	row(0, checkbox(m.enabled) + tr("Mod activado", "Mod enabled"), "", true);
-	row(1, tr("Aplicar a:", "Apply to:"), m.all_games ? tr("Todos los juegos", "All games") : tr("Juegos elegidos", "Selected games"), m.enabled);
+	row(0, checkbox(m.enabled) + "Mod enabled", "", true);
+	row(1, "Apply to:", m.all_games ? "All games" : "Selected games", m.enabled);
 	for (int i = 0; i < nopt; i++)
 	{
 		const mod_option &o = m.options[size_t(i)];
 		row(2 + i, o.label.substr(0, 26), o.value_text(m.option_index(o)), m.enabled);
 	}
 	y += 4;
-	cv.text(20, y, tr("Juegos:", "Games:"), 0xffc0c0c0);
+	cv.text(20, y, "Games:", 0xffc0c0c0);
 	y += 12;
 	for (int i = 0; i < ng; i++)
 	{
 		const game_info &g = games[size_t(i)];
 		bool sup = m.supports(g.id);
 		bool on = sup && (m.all_games || m.game_checked(g.id));
-		row(2 + nopt + i, checkbox(on) + g.title, sup ? "" : tr("no compatible", "not supported"), m.enabled && sup);
+		row(2 + nopt + i, checkbox(on) + g.title, sup ? "" : "not supported", m.enabled && sup);
 	}
-	cv.text(8, cv.h - 21, tr("Enter / Izq / Der: cambiar", "Enter / Left / Right: change"), 0xffb0b0b0);
-	cv.text(8, cv.h - 11, tr("Esc: volver", "Esc: back"), 0xffb0b0b0);
+	cv.text(8, cv.h - 21, "Enter / Left / Right: change", 0xffb0b0b0);
+	cv.text(8, cv.h - 11, "Esc: back", 0xffb0b0b0);
 	if (!m_message.empty() && SDL_GetTicks() < m_message_until) menu_message(cv, m_message);
 	present(cv.px.data(), cv.w, cv.h, false);
 	SDL_Delay(16);
@@ -946,38 +928,36 @@ void app::about_frame()
 	cv.text(cv.w / 2 - cv.text_w("NBA JAM RECOMP", 2) / 2, 8, "NBA JAM RECOMP", 0xffff8020, 2);
 	std::string ver = std::string("Version ") + app_version();
 	cv.text(cv.w / 2 - cv.text_w(ver) / 2, 26, ver, 0xffffffff);
-	std::string build = std::string(tr("compilacion ", "build ")) + app_commit() + "  " + app_build_date();
+	std::string build = std::string("build ") + app_commit() + "  " + app_build_date();
 	cv.text(cv.w / 2 - cv.text_w(build) / 2, 36, build, 0xffa0a0c0);
 	int y = 50;
 	{
 		// where the user's files are: the question people ask after installing
-		std::string where = std::string(m_paths.portable ? tr("Datos (portable): ", "Data (portable): ") : tr("Datos: ", "Data: ")) + m_base;
+		std::string where = std::string(m_paths.portable ? "Data (portable): " : "Data: ") + m_base;
 		y = cv.text_wrap(12, y, where, 0xffa0a0c0);
 		y += 4;
 	}
 	auto line = [&](const std::string &s, u32 c = 0xffd8e0ff) { y = cv.text_wrap(12, y, s, c); };
 	auto gap = [&]() { y += 4; };
-	line(tr("Creado por Pocket_lucho con Claude (Anthropic)", "Created by Pocket_lucho with Claude (Anthropic)"), 0xffffe080);
+	line("Created by Pocket_lucho with Claude (Anthropic)", 0xffffe080);
 	gap();
-	line(tr("Recompilacion de la saga NBA JAM de Midway a partir del codigo fuente original publicado.",
-	        "A recompilation of Midway's NBA JAM saga from the original source code that was made public."));
+	line("A recompilation of Midway's NBA JAM saga from the original source code that was made public.");
 	gap();
-	line(tr("Compilados desde la fuente:", "Built from source:"), 0xff80ff80);
-	line(tr(" T.E. rev 4.0 (identica a la ROM final)", " T.E. rev 4.0 (identical to the final ROM)"));
-	line(tr(" T.E. Special Edition rev 5.02 (identica)", " T.E. Special Edition rev 5.02 (identical)"));
-	line(tr(" Maximum Hangtime 1.3 (identica a la ROM)", " Maximum Hangtime 1.3 (identical to the ROM)"));
+	line("Built from source:", 0xff80ff80);
+	line(" T.E. rev 4.0 (identical to the final ROM)");
+	line(" T.E. Special Edition rev 5.02 (identical)");
+	line(" Maximum Hangtime 1.3 (identical to the ROM)");
 	gap();
-	line(tr("Herramientas: ensamblador TI GSPA propio y LOAD2 de Midway (emu2). Emulacion: nucleos de MAME (TMS34010, 6809, ADSP-2105) e ymfm.",
-	        "Tools: own TI GSPA assembler and Midway's LOAD2 (emu2). Emulation: MAME cores (TMS34010, 6809, ADSP-2105) and ymfm."), 0xffc0c8e0);
+	line("Tools: own TI GSPA assembler and Midway's LOAD2 (emu2). Emulation: MAME cores (TMS34010, 6809, ADSP-2105) and ymfm.", 0xffc0c8e0);
 	gap();
-	line(tr("Fuentes: github.com/historicalsource y Asure", "Sources: github.com/historicalsource and Asure"), 0xffb0b0b0);
+	line("Sources: github.com/historicalsource and Asure", 0xffb0b0b0);
 	line("github.com/PocketLucho/NBA-JAM---Recompiled", 0xffb0b0b0);
 	gap();
-	line(tr("Si quieres apoyarme ve a", "If you want to support me, go to"), 0xffffc040);
+	line("If you want to support me, go to", 0xffffc040);
 	line("https://buymeacoffee.com/pocket_lucho", 0xffffc040);
 	gap();
-	line(tr("NBA JAM (c) Midway. Proyecto sin animo de lucro.", "NBA JAM (c) Midway. Non-profit fan project."), 0xffb0b0b0);
-	std::string back = tr("Enter / Esc: volver", "Enter / Esc: back");
+	line("NBA JAM (c) Midway. Non-profit fan project.", 0xffb0b0b0);
+	std::string back = "Enter / Esc: back";
 	cv.text(cv.w / 2 - cv.text_w(back) / 2, cv.h - 11, back, 0xffb0b0b0);
 	present(cv.px.data(), cv.w, cv.h, false);
 	SDL_Delay(16);
@@ -999,8 +979,6 @@ void app::apply_setup(const import_result &r)
 // remap its pad inputs and shortcuts, and create / delete / export / import profiles.
 void app::controls_frame()
 {
-	static const char *act_es[kNumActions] = { "Arriba", "Abajo", "Izquierda", "Derecha", "Tiro", "Pase", "Turbo", "Start", "Moneda",
-	                                           "Empujon", "Tiro turbo", "Atajo 1", "Atajo 2" };
 	static const char *act_en[kNumActions] = { "Up", "Down", "Left", "Right", "Shoot", "Pass", "Turbo", "Start", "Coin",
 	                                           "Shove", "Turbo shot", "Shortcut 1", "Shortcut 2" };
 	// button sets a custom shortcut can cycle through (Left/Right); any set can be written in the file
@@ -1032,13 +1010,13 @@ void app::controls_frame()
 			SDL_StopTextInput();
 			std::string nm = m_edit;
 			while (!nm.empty() && nm.back() == ' ') nm.pop_back();
-			if (!valid_profile_name(nm)) message(tr("Nombre no valido", "Invalid name"));
-			else if (m_profiles.find(nm) >= 0) message(tr("Ya existe un perfil con ese nombre", "A profile with that name already exists"));
+			if (!valid_profile_name(nm)) message("Invalid name");
+			else if (m_profiles.find(nm) >= 0) message("A profile with that name already exists");
 			else
 			{
 				pad_profile np = prof;          // the new profile starts as a copy of the current one
 				np.name = nm;
-				if (m_profiles.save(np)) { profile_slot(m_ctl_game, m_ctl_player) = nm; save_config(m_cfgpath, m_cfg); message(tr("Perfil creado: ", "Profile created: ") + nm); }
+				if (m_profiles.save(np)) { profile_slot(m_ctl_game, m_ctl_player) = nm; save_config(m_cfgpath, m_cfg); message("Profile created: " + nm); }
 			}
 			return;
 		}
@@ -1089,17 +1067,17 @@ void app::controls_frame()
 					d0.name = prof.name;
 					prof = d0;
 					m_profiles.save(prof);
-					message(tr("Perfil restablecido: ", "Profile reset: ") + prof.name);
+					message("Profile reset: " + prof.name);
 					break;
 				}
 				case R_DELETE:
 				{
 					std::string nm = prof.name;
-					if (!m_profiles.remove(nm)) { message(tr("El perfil Default no se puede borrar", "The Default profile cannot be deleted")); break; }
+					if (!m_profiles.remove(nm)) { message("The Default profile cannot be deleted"); break; }
 					for (auto &p : m_cfg.pad_profile) if (p == nm) p = "Default";
 					for (auto &g : m_cfg.game_profiles) for (auto &p : g.second) if (p == nm) p.clear();
 					save_config(m_cfgpath, m_cfg);
-					message(tr("Perfil borrado: ", "Profile deleted: ") + nm);
+					message("Profile deleted: " + nm);
 					return;
 				}
 				case R_EXPORT:
@@ -1116,9 +1094,9 @@ void app::controls_frame()
 					if (ok)
 					{
 						SDL_SetClipboardText(path.c_str());
-						message(tr("Exportado (ruta copiada): ", "Exported (path copied): ") + path.substr(m_base.size()), 6000);
+						message("Exported (path copied): " + path.substr(m_base.size()), 6000);
 					}
-					else message(tr("No se pudo exportar ", "Could not export ") + path, 5000);
+					else message("Could not export " + path, 5000);
 					break;
 				}
 				case R_IMPORT:
@@ -1126,9 +1104,8 @@ void app::controls_frame()
 					std::vector<import_result> setups;
 					int n = m_profiles.import_folder(m, setups);
 					for (auto &r : setups) apply_setup(r);
-					if (m.empty()) message(tr("Copia perfiles .ini en controller_profiles/import o arrastralos a la ventana",
-					                          "Copy .ini profiles to controller_profiles/import or drop them on the window"), 6000);
-					else message(std::to_string(n) + tr(" fichero(s) importado(s): ", " file(s) imported: ") + m, 6000);
+					if (m.empty()) message("Copy .ini profiles to controller_profiles/import or drop them on the window", 6000);
+					else message(std::to_string(n) + " file(s) imported: " + m, 6000);
 					return;
 				}
 				case R_BACK: save_config(m_cfgpath, m_cfg); m_screen = screen::menu; return;
@@ -1138,38 +1115,38 @@ void app::controls_frame()
 
 	canvas cv(400, 300);
 	draw_background(cv);
-	std::string head = tr("CONTROLES", "CONTROLS");
+	std::string head = "CONTROLS";
 	cv.text(cv.w / 2 - cv.text_w(head, 2) / 2, 4, head, 0xffff8020, 2);
 	SDL_GameController *pad = size_t(m_ctl_player) < m_pads.size() ? m_pads[size_t(m_ctl_player)] : nullptr;
 	const char *pn = pad ? SDL_GameControllerName(pad) : nullptr;
-	std::string padline = tr("Mando: ", "Pad: ") + (pad ? std::string(pn ? pn : "?") : std::string(tr("(no conectado)", "(not connected)")));
+	std::string padline = "Pad: " + (pad ? std::string(pn ? pn : "?") : std::string("(not connected)"));
 	cv.text(16, 23, padline.substr(0, 46), pad ? 0xff80ff80 : 0xff909090, 1, false);
 
 	// rows, scrolled so the selection stays visible
 	struct line_t { std::string label, value; u32 vcol; };
 	std::vector<line_t> rows(R_COUNT);
-	rows[R_GAME] = { tr("Juego", "Game"), "< " + std::string(m_ctl_game < 0 ? tr("Todos los juegos", "All games") : game_list()[size_t(m_ctl_game)].title) + " >", 0xffffe080 };
-	rows[R_PLAYER] = { tr("Jugador", "Player"), "< " + std::string(tr("J", "P")) + std::to_string(m_ctl_player + 1) + " >", 0xffffe080 };
-	rows[R_PROFILE] = { tr("Perfil", "Profile"), "< " + (inherit ? std::string(tr("como todos: ", "as all: ")) + prof.name : prof.name) + " >", 0xffffe080 };
+	rows[R_GAME] = { "Game", "< " + std::string(m_ctl_game < 0 ? "All games" : game_list()[size_t(m_ctl_game)].title) + " >", 0xffffe080 };
+	rows[R_PLAYER] = { "Player", "< " + std::string("P") + std::to_string(m_ctl_player + 1) + " >", 0xffffe080 };
+	rows[R_PROFILE] = { "Profile", "< " + (inherit ? std::string("as all: ") + prof.name : prof.name) + " >", 0xffffe080 };
 	unsigned held = pad ? prof.buttons(pad) : 0;
 	for (int a = 0; a < kNumActions; a++)
 	{
-		std::string label = (g_lang_en ? act_en : act_es)[a];
+		std::string label = act_en[a];
 		bool live = pad && prof.pressed(pad, a);
 		if (a < kNumButtons && ((held >> a) & 1u)) live = true;
-		std::string v = (m_capture == a) ? std::string(tr("pulsa un boton/eje... (", "press a button/axis... (")) + std::to_string(int(m_capture_until - SDL_GetTicks()) / 1000 + 1) + ")"
+		std::string v = (m_capture == a) ? std::string("press a button/axis... (") + std::to_string(int(m_capture_until - SDL_GetTicks()) / 1000 + 1) + ")"
 		                                 : prof.action_text(a);
 		if (a >= kNumButtons && m_capture != a) v = "[" + combo_mask_text(prof.combo[a - kNumButtons]) + "] " + v;
 		rows[size_t(R_ACT0 + a)] = { label, v, m_capture == a ? 0xffffff40u : live ? 0xff60ff60u : 0xffffe080u };
 	}
-	rows[R_DEAD] = { tr("Zona muerta", "Dead zone"), "< " + std::to_string(prof.deadzone * 100 / 32767) + "% >", 0xffffe080 };
-	rows[R_NEW] = { m_editing ? tr("Nombre: ", "Name: ") + m_edit + ((SDL_GetTicks() / 400) % 2 ? "_" : " ") : tr("Nuevo perfil (copia de este)", "New profile (copy of this one)"), "", 0 };
-	rows[R_RESET] = { tr("Restablecer valores por defecto", "Reset to defaults"), "", 0 };
-	rows[R_DELETE] = { tr("Borrar perfil", "Delete profile"), "", 0 };
-	rows[R_EXPORT] = { tr("Exportar perfil", "Export profile"), "", 0 };
-	rows[R_EXPORT_SETUP] = { m_ctl_game < 0 ? tr("Exportar config. de todos los juegos", "Export setup for all games") : tr("Exportar config. de este juego", "Export setup for this game"), "", 0 };
-	rows[R_IMPORT] = { tr("Importar perfiles / configuraciones", "Import profiles / setups"), "", 0 };
-	rows[R_BACK] = { tr("Volver", "Back"), "", 0 };
+	rows[R_DEAD] = { "Dead zone", "< " + std::to_string(prof.deadzone * 100 / 32767) + "% >", 0xffffe080 };
+	rows[R_NEW] = { m_editing ? "Name: " + m_edit + ((SDL_GetTicks() / 400) % 2 ? "_" : " ") : "New profile (copy of this one)", "", 0 };
+	rows[R_RESET] = { "Reset to defaults", "", 0 };
+	rows[R_DELETE] = { "Delete profile", "", 0 };
+	rows[R_EXPORT] = { "Export profile", "", 0 };
+	rows[R_EXPORT_SETUP] = { m_ctl_game < 0 ? "Export setup for all games" : "Export setup for this game", "", 0 };
+	rows[R_IMPORT] = { "Import profiles / setups", "", 0 };
+	rows[R_BACK] = { "Back", "", 0 };
 	const int top = 35, rh = 11, vis = 19;
 	if (m_ctl_sel < m_ctl_scroll) m_ctl_scroll = m_ctl_sel;
 	if (m_ctl_sel >= m_ctl_scroll + vis) m_ctl_scroll = m_ctl_sel - vis + 1;
@@ -1185,13 +1162,13 @@ void app::controls_frame()
 	if (m_ctl_scroll > 0) cv.text(cv.w - 16, top, "^", 0xffb0b0b0, 1, false);
 	if (m_ctl_scroll + vis < R_COUNT) cv.text(cv.w - 16, top + (vis - 1) * rh, "v", 0xffb0b0b0, 1, false);
 	bool custom = m_ctl_sel >= int(R_ACT0) + int(A_CUSTOM1) && m_ctl_sel < R_DEAD;
-	const char *help = m_capture >= 0 ? tr("Pulsa uno ya asignado para quitarlo. Esc: cancelar", "Press a bound input to remove it. Esc: cancel")
-	                 : m_editing ? tr("Escribe el nombre y pulsa Enter", "Type the name and press Enter")
-	                 : custom ? tr("Enter/A: asignar  Izq/Der: botones del atajo", "Enter/A: bind  Left/Right: shortcut buttons")
-	                 : tr("Enter/A: asignar  Supr/X: borrar  Izq/Der: cambiar", "Enter/A: bind  Del/X: clear  Left/Right: change");
+	const char *help = m_capture >= 0 ? "Press a bound input to remove it. Esc: cancel"
+	                 : m_editing ? "Type the name and press Enter"
+	                 : custom ? "Enter/A: bind  Left/Right: shortcut buttons"
+	                 : "Enter/A: bind  Del/X: clear  Left/Right: change";
 	cv.text(8, cv.h - 21, help, 0xffb0b0b0, 1, false);
-	cv.text(8, cv.h - 11, m_ctl_game < 0 ? tr("Perfil para todos los juegos (cada juego puede tener el suyo)", "Profile for every game (each game can override it)")
-	                                     : tr("Solo para este juego", "Only for this game"), 0xff909090, 1, false);
+	cv.text(8, cv.h - 11, m_ctl_game < 0 ? "Profile for every game (each game can override it)"
+	                                     : "Only for this game", 0xff909090, 1, false);
 	if (!m_message.empty() && SDL_GetTicks() < m_message_until) menu_message(cv, m_message);
 	present(cv.px.data(), cv.w, cv.h, false);
 	SDL_Delay(16);
@@ -1221,7 +1198,7 @@ void app::net_menu_frame()
 			if (m_net_sel == 0)
 			{
 				if (!m_avail[size_t(m_sel)]) message(m_why[size_t(m_sel)], 6000);
-				else if (!m_net.host(u16(m_cfg.net_port), err)) message(tr("Red: ", "Network: ") + err, 6000);
+				else if (!m_net.host(u16(m_cfg.net_port), err)) message("Network: " + err, 6000);
 				else { m_screen = screen::net_lobby; return; }
 			}
 			if (m_net_sel == 1)
@@ -1235,25 +1212,25 @@ void app::net_menu_frame()
 	if (join_now)
 	{
 		std::string err;
-		if (!m_net.join(m_cfg.net_host, u16(m_cfg.net_port), err)) message(tr("Red: ", "Network: ") + err, 6000);
+		if (!m_net.join(m_cfg.net_host, u16(m_cfg.net_port), err)) message("Network: " + err, 6000);
 		else { m_screen = screen::net_lobby; return; }
 	}
 
 	canvas cv(400, 300);
 	draw_background(cv);
-	std::string head = tr("JUEGO EN RED", "ONLINE GAME");
+	std::string head = "ONLINE GAME";
 	cv.text(cv.w / 2 - cv.text_w(head, 2) / 2, 12, head, 0xffff8020, 2);
 	cv.text(16, 36, g.title, 0xffffe080, 1, false);
-	std::string join = tr("Unirse a: ", "Join: ");
-	std::string ip = m_editing ? m_edit + ((SDL_GetTicks() / 400) % 2 ? "_" : " ") : (m_cfg.net_host.empty() ? tr("(escribe la IP)", "(type the IP)") : m_cfg.net_host);
+	std::string join = "Join: ";
+	std::string ip = m_editing ? m_edit + ((SDL_GetTicks() / 400) % 2 ? "_" : " ") : (m_cfg.net_host.empty() ? "(type the IP)" : m_cfg.net_host);
 	size_t room = size_t((cv.w - 24) / 8) - join.size();
 	if (ip.size() > room) ip = ip.substr(ip.size() - room);       // keep the end (the cursor) visible
 	const std::string opts[nopt] = {
-		tr("Crear partida (anfitrion, J1)", "Host a game (host, P1)"),
+		"Host a game (host, P1)",
 		join + ip,
-		tr("Puerto UDP: < ", "UDP port: < ") + std::to_string(m_cfg.net_port) + " >",
-		tr("Retardo de entrada: < ", "Input delay: < ") + std::to_string(m_cfg.net_delay) + " frames >",
-		tr("Volver", "Back"),
+		"UDP port: < " + std::to_string(m_cfg.net_port) + " >",
+		"Input delay: < " + std::to_string(m_cfg.net_delay) + " frames >",
+		"Back",
 	};
 	for (int i = 0; i < nopt; i++)
 	{
@@ -1262,17 +1239,12 @@ void app::net_menu_frame()
 		cv.text(20, y, opts[i], i == m_net_sel ? 0xffffffff : 0xffc8d8ff);
 	}
 	int y = 162;
-	y = cv.text_wrap(12, y, tr("El anfitrion elige el juego (el seleccionado en el menu) y debe abrir el puerto UDP en su router, "
-	                           "o usar una red virtual (Tailscale, ZeroTier, Radmin VPN...). Todos necesitan las mismas ROMs. "
-	                           "Retardo 3-4 en LAN, 5-7 por internet; lo decide el anfitrion.",
-	                           "The host picks the game (the one selected in the menu) and must open the UDP port on the router, "
-	                           "or use a virtual LAN (Tailscale, ZeroTier, Radmin VPN...). Everybody needs the same ROMs. "
-	                           "Delay 3-4 on a LAN, 5-7 over the internet; the host decides."), 0xffa0a0a0);
+	y = cv.text_wrap(12, y, "The host picks the game (the one selected in the menu) and must open the UDP port on the router, " "or use a virtual LAN (Tailscale, ZeroTier, Radmin VPN...). Everybody needs the same ROMs. " "Delay 3-4 on a LAN, 5-7 over the internet; the host decides.", 0xffa0a0a0);
 	std::string ips;
 	for (auto &s : m_local_ips) ips += (ips.empty() ? "" : ", ") + s;
-	y = cv.text_wrap(12, y + 3, tr("Tu IP local: ", "Your local IP: ") + (ips.empty() ? std::string("?") : ips), 0xff80ff80);
-	cv.text_wrap(12, y + 3, m_editing ? tr("Escribe la IP y pulsa Enter (Ctrl+V pega)", "Type the IP and press Enter (Ctrl+V pastes)")
-	                                  : tr("Enter: elegir  Izq/Der: cambiar  Esc: volver", "Enter: select  Left/Right: change  Esc: back"), 0xffb0b0b0);
+	y = cv.text_wrap(12, y + 3, "Your local IP: " + (ips.empty() ? std::string("?") : ips), 0xff80ff80);
+	cv.text_wrap(12, y + 3, m_editing ? "Type the IP and press Enter (Ctrl+V pastes)"
+	                                  : "Enter: select  Left/Right: change  Esc: back", 0xffb0b0b0);
 	if (!m_message.empty() && SDL_GetTicks() < m_message_until) menu_message(cv, m_message);
 	present(cv.px.data(), cv.w, cv.h, false);
 	SDL_Delay(16);
@@ -1286,9 +1258,8 @@ std::string app::net_mod_block(const std::string &game_id)
 	if (b.empty()) return "";
 	std::string names;
 	for (const auto &n : b) names += (names.empty() ? "" : ", ") + n;
-	return tr("No se puede jugar en red con estos mods Lua activos (escriben en RAM o se ejecutan cada frame): ",
-	          "Online play is not possible with these Lua mods on (they write RAM or run every frame): ")
-	     + names + tr(". Desactivalos en el menu Mods Lua.", ". Turn them off in the Lua mods menu.");
+	return "Online play is not possible with these Lua mods on (they write RAM or run every frame): "
+	     + names + ". Turn them off in the Lua mods menu.";
 }
 
 void app::net_lobby_frame()
@@ -1296,7 +1267,7 @@ void app::net_lobby_frame()
 	m_net.poll();
 	if (!m_net.active())
 	{
-		message(tr("Red: ", "Network: ") + m_net.error(), 6000);
+		message("Network: " + m_net.error(), 6000);
 		m_screen = screen::net_menu;
 		return;
 	}
@@ -1311,7 +1282,7 @@ void app::net_lobby_frame()
 		m_net_game = true;
 		if (!start_game(m_sel)) { m_net_game = false; m_net.stop(); m_screen = screen::net_menu; return; }
 		m_net.host_start(g.id, m_mach->fingerprint(), m_cfg.dips, m_mach->nvram(), m_cfg.net_delay);
-		message(tr("Partida en red: ", "Online game: ") + std::to_string(m_net.players()) + tr(" jugadores", " players"), 3000);
+		message("Online game: " + std::to_string(m_net.players()) + " players", 3000);
 		return;
 	}
 	if (!host && m_net.start_received())
@@ -1319,14 +1290,14 @@ void app::net_lobby_frame()
 		int idx = -1;
 		for (size_t i = 0; i < game_list().size(); i++) if (m_net.start_game_id() == game_list()[i].id) idx = int(i);
 		std::string why;
-		if (idx < 0) why = tr("juego desconocido: ", "unknown game: ") + m_net.start_game_id();
-		else if (!m_avail[size_t(idx)]) why = std::string(tr("no tienes ", "you don't have ")) + game_list()[size_t(idx)].title;
+		if (idx < 0) why = "unknown game: " + m_net.start_game_id();
+		else if (!m_avail[size_t(idx)]) why = std::string("you don't have ") + game_list()[size_t(idx)].title;
 		if (why.empty()) why = net_mod_block(game_list()[size_t(idx)].id);
 		if (why.empty())
 		{
 			m_net_game = true;
-			if (!start_game(idx, true)) why = tr("no se pudo cargar el juego", "the game could not be loaded");
-			else if (m_mach->fingerprint() != m_net.start_fingerprint()) why = tr("tus ROMs (o mods Lua) no coinciden con las del anfitrion", "your ROMs (or Lua mods) are not the same as the host's");
+			if (!start_game(idx, true)) why = "the game could not be loaded";
+			else if (m_mach->fingerprint() != m_net.start_fingerprint()) why = "your ROMs (or Lua mods) are not the same as the host's";
 		}
 		if (!why.empty())
 		{
@@ -1335,7 +1306,7 @@ void app::net_lobby_frame()
 			m_mach.reset();
 			m_net_game = false;
 			m_net.stop(why.c_str());
-			message(tr("Red: ", "Network: ") + why, 6000);
+			message("Network: " + why, 6000);
 			m_screen = screen::net_menu;
 			return;
 		}
@@ -1348,40 +1319,40 @@ void app::net_lobby_frame()
 
 	canvas cv(400, 300);
 	draw_background(cv);
-	std::string head = tr("JUEGO EN RED", "ONLINE GAME");
+	std::string head = "ONLINE GAME";
 	cv.text(cv.w / 2 - cv.text_w(head, 2) / 2, 12, head, 0xffff8020, 2);
 	int y = 40;
 	auto line = [&](const std::string &s, u32 c = 0xffffffff) { y = cv.text_wrap(16, y, s, c, 12, true); };
 	if (host)
 	{
-		line(std::string(tr("Anfitrion: ", "Host: ")) + g.title, 0xffffe080);
+		line(std::string("Host: ") + g.title, 0xffffe080);
 		std::string ips;
 		for (auto &s : m_local_ips) ips += (ips.empty() ? "" : ", ") + s;
 		line("IP: " + ips, 0xff80ff80);
-		line(tr("Puerto UDP: ", "UDP port: ") + std::to_string(m_cfg.net_port) + tr("   retardo: ", "   delay: ") + std::to_string(m_cfg.net_delay), 0xff80ff80);
+		line("UDP port: " + std::to_string(m_cfg.net_port) + "   delay: " + std::to_string(m_cfg.net_delay), 0xff80ff80);
 		y += 6;
-		line(tr("Jugadores: ", "Players: ") + std::to_string(m_net.players()) + " / 4");
-		line(tr("J1  tu (anfitrion)", "P1  you (host)"), 0xffc8d8ff);
+		line("Players: " + std::to_string(m_net.players()) + " / 4");
+		line("P1  you (host)", 0xffc8d8ff);
 		for (auto &p : m_net.peer_list()) line(p, 0xffc8d8ff);
 		y = 240;
-		line(tr("Enter: empezar     Esc: cancelar", "Enter: start     Esc: cancel"), 0xffb0b0b0);
-		line(tr("(puedes empezar solo para probar)", "(you can start alone to try it)"), 0xff808080);
+		line("Enter: start     Esc: cancel", 0xffb0b0b0);
+		line("(you can start alone to try it)", 0xff808080);
 	}
 	else
 	{
-		line(tr("Conectando con ", "Connecting to ") + m_cfg.net_host + ":" + std::to_string(m_cfg.net_port), 0xffffe080);
+		line("Connecting to " + m_cfg.net_host + ":" + std::to_string(m_cfg.net_port), 0xffffe080);
 		y += 6;
-		if (m_net.local_slot() < 0) line(tr("Esperando respuesta", "Waiting for an answer") + std::string((SDL_GetTicks() / 400) % 4, '.'));
+		if (m_net.local_slot() < 0) line("Waiting for an answer" + std::string((SDL_GetTicks() / 400) % 4, '.'));
 		else
 		{
-			line(tr("Conectado como jugador ", "Connected as player ") + std::to_string(m_net.local_slot() + 1) + "  (" + std::to_string(m_net.ping_ms()) + " ms)", 0xff80ff80);
-			line(tr("Jugadores: ", "Players: ") + std::to_string(m_net.players()));
-			line(m_net.stage() == netplay::phase::transfer ? tr("Recibiendo datos de la partida...", "Receiving the game data...")
-			                                               : tr("Esperando a que el anfitrion empiece...", "Waiting for the host to start..."));
+			line("Connected as player " + std::to_string(m_net.local_slot() + 1) + "  (" + std::to_string(m_net.ping_ms()) + " ms)", 0xff80ff80);
+			line("Players: " + std::to_string(m_net.players()));
+			line(m_net.stage() == netplay::phase::transfer ? "Receiving the game data..."
+			                                               : "Waiting for the host to start...");
 		}
 		y = 240;
-		line(tr("Usas los controles de J1 / primer mando", "You use the P1 keys / first pad"), 0xffb0b0b0);
-		line(tr("Esc: cancelar", "Esc: cancel"), 0xffb0b0b0);
+		line("You use the P1 keys / first pad", 0xffb0b0b0);
+		line("Esc: cancel", 0xffb0b0b0);
 	}
 	if (!m_message.empty() && SDL_GetTicks() < m_message_until) menu_message(cv, m_message);
 	present(cv.px.data(), cv.w, cv.h, false);
@@ -1453,16 +1424,15 @@ void app::choose_data_folder()
 	if (legacy_setup_present(m_paths))
 	{
 		std::string text =
-			"Tus ajustes, partidas, mods y ROMs estan junto al programa. Esta version los guarda en tu carpeta de usuario:\n"
 			"Your settings, saves, mods and ROMs are next to the program. This version keeps them in your user folder:\n\n"
 			+ m_paths.data_dir + "\n\n"
-			"Mover / Move: los lleva alli (recomendado) / takes them there (recommended).\n"
-			"Aqui / Here: todo sigue en esta carpeta (modo portable) / everything stays in this folder (portable mode).\n"
-			"Luego / Later: no cambia nada y se pregunta otra vez / nothing changes and you are asked again.";
+			"Move: takes them there (recommended).\n"
+			"Keep here: everything stays in this folder (portable mode).\n"
+			"Later: nothing changes and you are asked again.";
 		const SDL_MessageBoxButtonData buttons[] = {
-			{ SDL_MESSAGEBOX_BUTTON_RETURNKEY_DEFAULT, 1, "Mover / Move" },
-			{ 0, 2, "Aqui / Here" },
-			{ SDL_MESSAGEBOX_BUTTON_ESCAPEKEY_DEFAULT, 0, "Luego / Later" },
+			{ SDL_MESSAGEBOX_BUTTON_RETURNKEY_DEFAULT, 1, "Move" },
+			{ 0, 2, "Keep here" },
+			{ SDL_MESSAGEBOX_BUTTON_ESCAPEKEY_DEFAULT, 0, "Later" },
 		};
 		const SDL_MessageBoxData box = { SDL_MESSAGEBOX_INFORMATION, nullptr, "NBA JAM Recomp", text.c_str(), 3, buttons, nullptr };
 		int choice = 0;
@@ -1475,14 +1445,14 @@ void app::choose_data_folder()
 				std::string names;
 				for (const auto &f : failed) names += (names.empty() ? "" : ", ") + f;
 				SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_WARNING, "NBA JAM Recomp",
-					("No se pudo mover / Could not be moved: " + names + "\nSiguen en / They are still in: " + m_paths.exe_dir).c_str(), nullptr);
+					("Could not be moved: " + names + "\nThey are still in: " + m_paths.exe_dir).c_str(), nullptr);
 			}
 		}
 		else if (choice == 2)
 		{
 			if (make_portable(m_paths)) m_paths = resolve_paths(exe, user, env);
 			else SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_WARNING, "NBA JAM Recomp",
-				"No se puede escribir en la carpeta del programa; se usa la carpeta de usuario.\nThe program folder cannot be written; the user folder is used.", nullptr);
+				"The program folder cannot be written; the user folder is used.", nullptr);
 		}
 		else
 		{
@@ -1510,17 +1480,6 @@ int app::run()
 	choose_data_folder();
 	m_cfgpath = path_join(m_base, "nbajam_recomp.ini");
 	load_config(m_cfgpath, m_cfg);
-	if (m_cfg.lang < 0)
-	{
-		// first run: follow the system language (Spanish -> castellano, anything else -> English)
-		g_lang_en = true;
-		if (SDL_Locale *loc = SDL_GetPreferredLocales())
-		{
-			if (loc[0].language && std::string(loc[0].language) == "es") g_lang_en = false;
-			SDL_free(loc);
-		}
-	}
-	else g_lang_en = m_cfg.lang == 1;
 	m_cat = std::make_unique<game_catalog>(m_base);
 	m_mods.scan(path_join(m_base, "mods"), path_join(m_base, "mods.ini"));
 	m_profiles.init(m_base);

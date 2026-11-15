@@ -96,7 +96,7 @@ int main(int argc, char **argv)
 		m = cat.create(*gi, err);
 		if (!m) { np.client_ready(false, err); return 1; }
 		mods.start(id, *m);
-		if (m->fingerprint() != np.start_fingerprint()) { np.client_ready(false, "ROMs distintas"); np.poll(); fprintf(stderr, "fingerprint mismatch\n"); return 1; }
+		if (m->fingerprint() != np.start_fingerprint()) { np.client_ready(false, "different ROMs"); np.poll(); fprintf(stderr, "fingerprint mismatch\n"); return 1; }
 		m->set_nvram(np.start_nvram());
 		m->set_dips(np.start_dips());
 		m->reset();

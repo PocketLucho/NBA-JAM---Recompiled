@@ -10,8 +10,7 @@ struct game_info
 {
 	const char *id;          // short id (nvram / config names)
 	const char *title;
-	const char *subtitle;    // Spanish
-	const char *subtitle_en; // English
+	const char *subtitle;
 	const char *hardware;    // "T-Unit" / "Wolf Unit"
 	bool from_source;        // our build from the original source code is identical to this ROM
 };
