@@ -55,7 +55,21 @@ CONTROLES (teclado)
   Jugador 4   I   K   J   L           H     ;     U      4      8
 
   Mandos: cada mando conectado controla un jugador (A tiro, B pase,
-  X/gatillo turbo, Start, Back = moneda).
+  X/gatillo turbo, Start, Back = moneda) por defecto.
+
+  Reasignar: menu principal -> "Controles". Elige jugador y perfil (o crea
+  uno), selecciona una accion, pulsa Enter/A y luego el boton o la direccion
+  del stick (pulsar uno ya asignado lo quita; Supr/X borra la accion).
+  Cada jugador (J1-J4) tiene un perfil para todos los juegos; elige un juego
+  en "Juego" para darle otro perfil solo ahi ("como todos" = sin cambio).
+  Atajos: una entrada del mando pulsa varios botones a la vez - Empujon
+  (turbo+pase; en ataque esos botones hacen pase turbo), Tiro turbo
+  (turbo+tiro) y dos atajos propios (Izq/Der elige sus botones).
+  "Exportar config." guarda en un fichero los perfiles de cada jugador del
+  juego elegido (o de todos) junto con esos perfiles; al importarlo se aplica. Se guardan en controller_profiles/. "Exportar perfil" lo escribe en
+  controller_profiles/export/ (ruta copiada al portapapeles); para importar,
+  copia los .ini en controller_profiles/import/ y elige "Importar perfiles",
+  o arrastra el fichero a la ventana.
 
   F1   ayuda en pantalla             F2  interruptor TEST (menu de servicio)
   F3   reset

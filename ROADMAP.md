@@ -7,17 +7,23 @@ platforms) are specified below.
 **Order of work:**
 
 1. Phase 0 (in Part 3): merge the two open pull requests. Everything touches
-   `src/app/main.cpp`, so this goes first.
-2. W1 (Part 1): scaling and border fixes. Small; can be released on its own.
-3. Part 2, phases U1 to U7: the interface overhaul.
-4. W2 to W6 (Part 1): true widescreen and ultrawide.
-5. Part 3 from Phase 1 on: Lua scripts.
-6. Part 4, phases N1 to N9: online rooms, spectating, queues and chat.
-7. Part 5, phases R1 to R8: installers, release pages, macOS and Android.
+   `src/app/main.cpp`, so this goes first. **0.1 is done:** both are on `main`.
+2. R1 and R2 (Part 5): automated builds, release pages and patch notes. They depend on
+   nothing else, and every later milestone ships through them.
+3. W1 (Part 1): scaling and border fixes. Small; can be released on its own.
+4. Part 2, phases U1 to U7: the interface overhaul.
+5. W2 to W6 (Part 1): true widescreen and ultrawide.
+6. Part 3 from Phase 1 on: Lua scripts.
+7. Part 4, phases N1 to N9: online rooms, spectating, queues and chat.
+8. Part 5, phases R3 to R8: installers, macOS, Android and the first full release.
 
-R1 and R2 (automated builds and release pages) do not depend on anything else and are
-worth pulling forward to just after step 1, so that every earlier milestone ships
-through them. The rest of Part 5 stays last.
+Two notes on doing R1 and R2 this early:
+
+* The CI job in 0.2 and the pull request builds in R1.1 are the same workflow; build
+  them together.
+* R2.3 (news in the app) draws on the home screen, which Part 2 rebuilds. Do the feed
+  reader and the setting in step 2 and put the notice on the current menu; U3 carries it
+  over to the new one.
 
 The interface comes before the Lua work so that the mod, controller and pause menus are
 built once, in the new style. Each task names the model that should do it:
@@ -49,13 +55,14 @@ is not available in the session), say so in the pull request instead of marking 
 
 ## Where things stand
 
-* `main` has no scripting. Pull request
-  [richvam/NBA-JAMs-Recomp#2](https://github.com/richvam/NBA-JAMs-Recomp/pull/2) (draft,
-  not merged) adds Lua 5.4.6, the `nba` API, the **Lua mods** menu, `mods.ini`,
+* Pull request
+  [richvam/NBA-JAMs-Recomp#2](https://github.com/richvam/NBA-JAMs-Recomp/pull/2) is
+  merged: `main` has Lua 5.4.6, the `nba` API, the **Lua mods** menu, `mods.ini`,
   `tools/headless/modtest`, and two scripts: `quarter_length.lua` and `no_select_timer.lua`.
 * Pull request [richvam/NBA-JAMs-Recomp#1](https://github.com/richvam/NBA-JAMs-Recomp/pull/1)
-  (draft) adds controller remapping. Both touch `src/app/main.cpp` and the Makefile.
-* Limits of the engine in pull request 2 that Part 3 has to remove:
+  (controller remapping) is merged on top of it. The main menu now lists Lua mods,
+  language, controls and about.
+* Limits of the engine from pull request 2 that Part 3 has to remove:
   * Options are value lists only. There is no plain on/off switch, no per-player choice,
     no grouping, and no way to change anything while a game is running.
   * Scripts cannot share code (no `require`), so every script would repeat the same
@@ -303,6 +310,12 @@ Check for each: `viewtest` screenshots in both languages, and the U1.2 automated
 | 0.1 | Sonnet | Rebase pull request 2 on `main`, resolve conflicts, get it ready to merge. Then rebase pull request 1 on top. | Linux app and `modtest` build; both existing scripts still pass their headless runs on T.E. 4.0 and SE 5.02 |
 | 0.2 | Sonnet | Add a CI job that builds `libcore.a`, the Linux app and `modtest`, and runs the Lua engine tests that need no ROM (sandbox, budget, option parsing). | Job green on a pull request |
 | 0.3 | Opus | Interim netplay guard: while netplay is active, refuse to start if any enabled script has an `on_frame` hook or writes RAM, with a clear message. Removed again in 1.7. | `nettest` with a RAM-writing mod enabled refuses to start |
+
+**Status:** 0.1 is done. The merged tree builds the Linux app and `modtest`, and both
+scripts pass their headless runs on NBA JAM rev 3.01, Hangtime L1.1 and Maximum Hangtime
+1.03 (`quarter_length` at 1:30 starts every quarter at 1:30). T.E. 4.0 and SE 5.02 were
+not rerun, because their program ROMs were not in the session. 0.2 is built together
+with R1.1.
 
 **Gate:** pull request 2 merged; CI green.
 
