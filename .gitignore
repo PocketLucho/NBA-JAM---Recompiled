@@ -11,3 +11,7 @@ dist/NBAJamRecomp/nbajam_recomp.ini
 *.zip
 *.ppm
 dist/NBAJamRecomp/mods.ini
+# builds are published as GitHub Releases, never committed (tools/ci/check_repo.py)
+releases/
+*.tar.gz
+*.7z
