@@ -25,7 +25,7 @@ static void sock_close(long long fd) { ::close(int(fd)); }
 #endif
 
 static constexpr u8 MAGIC = 0x4a;
-static constexpr u16 VERSION = 1;
+static constexpr u16 VERSION = 1;      // online protocol version, independent of the program version (version.h)
 static constexpr u32 TIMEOUT_MS = 10000;
 static constexpr int CHUNK = 1024;
 

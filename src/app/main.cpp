@@ -1,5 +1,6 @@
 // main.cpp - NBA JAM Recomp: one application for the whole NBA JAM saga.
 // Game picker at start-up, SDL2 video/audio/input, per-game NVRAM.
+#include "version.h"
 #include "games.h"
 #include "font.h"
 #include "lang.h"
@@ -220,18 +221,6 @@ static const char *shader_name(int i)
 	static const char *en[] = { "Sharp (pixel perfect)", "Smooth", "Scanlines", "CRT", "Curved CRT" };
 	i = std::clamp(i, 0, kNumShaders - 1);
 	return g_lang_en ? en[i] : es[i];
-}
-
-// version = build date (YYYY.MM.DD), taken from the compiler
-static std::string app_version()
-{
-	static const char *months = "JanFebMarAprMayJunJulAugSepOctNovDec";
-	const char *d = __DATE__;            // "Mmm dd yyyy"
-	int mon = int((strstr(months, std::string(d, 3).c_str()) - months) / 3) + 1;
-	int day = atoi(d + 4), year = atoi(d + 7);
-	char b[32];
-	snprintf(b, sizeof(b), "%04d.%02d.%02d", year, mon, day);
-	return b;
 }
 
 // ---------------------------------------------------------------------------
@@ -793,6 +782,8 @@ void app::menu_frame()
 		if (sel) cv.blend(12, y - 3, cv.w - 24, 14, 0xffffa020, 90);
 		cv.text(20, y, tr("Acerca de NBA JAM Recomp", "About NBA JAM Recomp"), sel ? 0xffffffff : 0xffc8d8ff);
 	}
+	std::string ver = std::string("v") + app_version();
+	cv.text(cv.w - 8 - cv.text_w(ver), cv.h - 33, ver, 0xff8080a0);
 	cv.text(8, cv.h - 21, tr("Enter/A: jugar   N/Y: juego en red", "Enter/A: play   N/Y: online game"), 0xffb0b0b0);
 	cv.text(8, cv.h - 11, tr("Esc: salir  F4: video  F11: pant. completa", "Esc: quit  F4: video  F11: fullscreen"), 0xffb0b0b0);
 	if (!m_message.empty() && SDL_GetTicks() < m_message_until) menu_message(cv, m_message);
@@ -950,9 +941,11 @@ void app::about_frame()
 	canvas cv(400, 300);
 	draw_background(cv);
 	cv.text(cv.w / 2 - cv.text_w("NBA JAM RECOMP", 2) / 2, 8, "NBA JAM RECOMP", 0xffff8020, 2);
-	std::string ver = "Version " + app_version();
+	std::string ver = std::string("Version ") + app_version();
 	cv.text(cv.w / 2 - cv.text_w(ver) / 2, 26, ver, 0xffffffff);
-	int y = 40;
+	std::string build = std::string(tr("compilacion ", "build ")) + app_commit() + "  " + app_build_date();
+	cv.text(cv.w / 2 - cv.text_w(build) / 2, 36, build, 0xffa0a0c0);
+	int y = 50;
 	auto line = [&](const std::string &s, u32 c = 0xffd8e0ff) { y = cv.text_wrap(12, y, s, c); };
 	auto gap = [&]() { y += 4; };
 	line(tr("Creado por Pocket_lucho con Claude (Anthropic)", "Created by Pocket_lucho with Claude (Anthropic)"), 0xffffe080);
@@ -1437,6 +1430,7 @@ bool app::game_frame()
 int app::run()
 {
 	SDL_SetHint(SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS, "1");
+	SDL_Log("%s", app_version_line().c_str());
 	if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_GAMECONTROLLER) != 0)
 	{
 		SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "NBA JAM Recomp", SDL_GetError(), nullptr);
@@ -1524,8 +1518,15 @@ int app::run()
 	return 0;
 }
 
-int main(int, char **)
+int main(int argc, char **argv)
 {
+	// --version: print what this build is and leave (CI uses it to check a tagged build)
+	if (argc > 1 && std::string(argv[1]) == "--version")
+	{
+		printf("%s\n", app_version());
+		fprintf(stderr, "%s\n", app_version_line().c_str());
+		return 0;
+	}
 	SDL_SetMainReady();
 	try
 	{

@@ -8,6 +8,12 @@ CORE_SRC = src/emu/emu.cpp \
   src/mame/sound/okiadpcm.cpp src/mame/ymfm/ymfm_opm.cpp src/mame/ymfm/ymfm_misc.cpp src/mame/ymfm/ymfm_adpcm.cpp src/mame/ymfm/ymfm_ssg.cpp \
   src/board/midway_video.cpp src/board/williams_adpcm.cpp src/board/tunit.cpp src/board/dcs.cpp src/board/wunit.cpp
 BUILD ?= build/linux
+
+# Program version (R1.2): taken from the nearest v* git tag, "dev-<commit>" before the first tag, "dev" outside git.
+APP_VERSION ?= $(shell git describe --tags --match 'v*' --always --dirty 2>/dev/null | sed -e 's/^v//' -e '/\./!s/^/dev-/' | grep . || echo dev)
+APP_COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
+APP_DATE ?= $(shell date -u +%Y-%m-%d)
+VERSION_DEFS = -DAPP_VERSION='"$(APP_VERSION)"' -DAPP_COMMIT='"$(APP_COMMIT)"' -DAPP_DATE='"$(APP_DATE)"'
 CORE_OBJ = $(patsubst %.cpp,$(BUILD)/%.o,$(CORE_SRC))
 
 $(BUILD)/%.o: %.cpp
@@ -53,7 +59,7 @@ win:
 	x86_64-w64-mingw32-gcc -O2 -c src/third_party/miniz/miniz.c -o build/win/miniz.o
 	$(MAKE) BUILD=build/win CC=x86_64-w64-mingw32-gcc build/win/liblua.a
 	x86_64-w64-mingw32-g++ -std=c++20 -O2 -Isrc/emu -Isrc/mame -Isrc/board -Isrc/app -Isrc/third_party/miniz -Isrc/third_party/lua -I$(SDL2W)/include/SDL2 \
-	  src/app/main.cpp src/app/games.cpp src/app/romload.cpp src/app/netplay.cpp src/app/gl_present.cpp src/app/controls.cpp src/app/mods.cpp build/win/miniz.o build/win/libcore.a build/win/liblua.a \
+	  src/app/main.cpp src/app/games.cpp src/app/romload.cpp src/app/netplay.cpp src/app/gl_present.cpp src/app/controls.cpp src/app/mods.cpp src/app/version.cpp $(VERSION_DEFS) build/win/miniz.o build/win/libcore.a build/win/liblua.a \
 	  -L$(SDL2W)/lib -lmingw32 -lSDL2main -lSDL2 -mwindows -static -lwinmm -lsetupapi -loleaut32 -lole32 -limm32 -lversion -lgdi32 -luser32 -lshell32 -luuid -ladvapi32 -lcfgmgr32 -lws2_32 -lwinpthread \
 	  -o $(WIN_OUT)/NBAJamRecomp.exe
 
@@ -63,8 +69,12 @@ APP_INC = -Isrc/emu -Isrc/mame -Isrc/board -Isrc/app -Isrc/third_party/miniz -Is
 $(BUILD)/miniz.o: src/third_party/miniz/miniz.c
 	$(CC) -O2 -c $< -o $@
 linux-app: $(BUILD)/libcore.a $(BUILD)/miniz.o $(BUILD)/liblua.a
-	$(CXX) $(CXXFLAGS) $(APP_INC) -I$(SDL2L)/include/SDL2 src/app/main.cpp src/app/games.cpp src/app/romload.cpp src/app/netplay.cpp src/app/gl_present.cpp src/app/controls.cpp src/app/mods.cpp \
+	$(CXX) $(CXXFLAGS) $(APP_INC) -I$(SDL2L)/include/SDL2 src/app/main.cpp src/app/games.cpp src/app/romload.cpp src/app/netplay.cpp src/app/gl_present.cpp src/app/controls.cpp src/app/mods.cpp src/app/version.cpp $(VERSION_DEFS) \
 	  $(BUILD)/miniz.o $(BUILD)/libcore.a $(BUILD)/liblua.a -L$(SDL2L)/lib -Wl,-Bstatic -lSDL2 -Wl,-Bdynamic -static-libstdc++ -static-libgcc -lm -ldl -lpthread -o $(BUILD)/NBAJamRecomp
 $(BUILD)/cattest: tools/headless/cattest.cpp src/app/games.cpp src/app/romload.cpp $(BUILD)/libcore.a $(BUILD)/miniz.o
 	$(CXX) $(CXXFLAGS) $(APP_INC) $< src/app/games.cpp src/app/romload.cpp $(BUILD)/miniz.o $(BUILD)/libcore.a -o $@
 .PHONY: win linux-app
+
+print-version:
+	@echo $(APP_VERSION)
+.PHONY: print-version

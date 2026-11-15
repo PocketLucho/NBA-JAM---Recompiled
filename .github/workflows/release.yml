@@ -27,6 +27,8 @@ jobs:
     runs-on: ubuntu-22.04      # oldest current runner: keeps the glibc requirement low
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0       # tags, for the version string
 
       - name: Build tools and SDL2 development headers
         run: |
@@ -53,6 +55,15 @@ jobs:
           build/linux/luatest | tee luatest.log
           grep -q ", 0 failed" luatest.log
 
+      - name: Version string matches the tag
+        run: |
+          got=$(build/NBAJamRecomp-linux --version)
+          echo "program says: $got"
+          if [ "${{ github.ref_type }}" = tag ]; then
+            want="${{ github.ref_name }}"; want="${want#v}"
+            [ "$got" = "$want" ] || { echo "expected $want"; exit 1; }
+          fi
+
       - name: Package
         run: tools/ci/package.sh linux build/NBAJamRecomp-linux "NBAJamRecomp-${PKG_VERSION}-linux-x64" dist-out
 
@@ -67,6 +78,8 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0       # tags, for the version string
 
       - name: Install the MinGW-w64 cross compiler
         run: |
@@ -84,6 +97,12 @@ jobs:
 
       - name: Build libcore, liblua and NBAJamRecomp.exe
         run: tools/ci/build_all.sh win deps/sdl2win build/NBAJamRecomp.exe
+
+      - name: Version string is in the executable
+        run: |
+          want=$(make -s print-version)
+          echo "expecting: $want"
+          strings build/NBAJamRecomp.exe | grep -Fx -- "$want"
 
       - name: Package
         run: tools/ci/package.sh windows build/NBAJamRecomp.exe "NBAJamRecomp-${PKG_VERSION}-windows-x64" dist-out
