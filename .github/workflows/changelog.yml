@@ -1,0 +1,27 @@
+# Every pull request adds a line under "Unreleased" in CHANGELOG.md, unless it carries the
+# no-changelog label (roadmap R2.1). Kept apart from the build workflow so that adding or
+# removing the label re-runs only this check.
+name: changelog
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+
+permissions:
+  contents: read
+
+jobs:
+  changelog:
+    name: Changelog entry
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - run: python3 tools/ci/check_changelog.py --self-test
+      - name: A line under Unreleased, or the no-changelog label
+        if: ${{ !contains(github.event.pull_request.labels.*.name, 'no-changelog') }}
+        run: python3 tools/ci/check_changelog.py "origin/${{ github.base_ref }}"
+      - name: Skipped
+        if: ${{ contains(github.event.pull_request.labels.*.name, 'no-changelog') }}
+        run: echo "no-changelog label present, entry not required"
