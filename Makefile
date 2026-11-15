@@ -38,6 +38,9 @@ $(BUILD)/liblua.a: $(patsubst src/third_party/lua/%.c,$(BUILD)/lua/%.o,$(LUA_SRC
 $(BUILD)/luatest: tools/headless/luatest.cpp src/app/mods.cpp src/app/romload.cpp $(BUILD)/libcore.a $(BUILD)/liblua.a $(BUILD)/miniz.o
 	$(CXX) $(CXXFLAGS) $(INC) $(APP_INC) $< src/app/mods.cpp src/app/romload.cpp $(BUILD)/miniz.o $(BUILD)/libcore.a $(BUILD)/liblua.a -o $@
 
+$(BUILD)/nettest: tools/headless/nettest.cpp src/app/games.cpp src/app/romload.cpp src/app/netplay.cpp src/app/mods.cpp $(BUILD)/libcore.a $(BUILD)/liblua.a $(BUILD)/miniz.o
+	$(CXX) $(CXXFLAGS) $(INC) $(APP_INC) $< src/app/games.cpp src/app/romload.cpp src/app/netplay.cpp src/app/mods.cpp $(BUILD)/miniz.o $(BUILD)/libcore.a $(BUILD)/liblua.a -lpthread -o $@
+
 $(BUILD)/modtest: tools/headless/modtest.cpp src/app/mods.cpp src/app/romload.cpp $(BUILD)/libcore.a $(BUILD)/liblua.a $(BUILD)/miniz.o
 	$(CXX) $(CXXFLAGS) $(INC) $(APP_INC) $< src/app/mods.cpp src/app/romload.cpp $(BUILD)/miniz.o $(BUILD)/libcore.a $(BUILD)/liblua.a -o $@
 

@@ -160,6 +160,39 @@ function on_frame(n) if n == 2 then error("boom") end end
 	mm.stop();
 	CHECK(mm.active_count() == 0, "stop closes every script");
 
+	// ---- interim netplay guard (roadmap 0.3) ----
+	write_file(dir / "ram.lua", "mod = { name = 'Ram' }\nfunction on_load() nba.write16(0x01000000, 1) end\n");
+	write_file(dir / "ram_alias.lua", "mod = { name = 'RamAlias' }\nlocal w = nba.write8\n");
+	mod_manager g;
+	g.scan(d, "");
+	for (auto &s : g.mods()) s.enabled = true;
+	auto bl = g.netplay_blockers("nbajamte");
+	auto blocked = [&](const std::string &n) { for (auto &b : bl) if (b == n) return true; return false; };
+	CHECK(blocked("Ram") && blocked("RamAlias"), "netplay guard: scripts that write RAM are listed, also through an alias");
+	CHECK(blocked("Frames") && blocked("FrameErr"), "netplay guard: scripts with on_frame are listed");
+	CHECK(!blocked("Patch") && !blocked("Options test") && !blocked("Sandbox"), "netplay guard: ROM-only scripts are allowed (rom_write* is not a RAM write)");
+	for (auto &s : g.mods()) s.enabled = s.file == "patch.lua" || s.file == "opts.lua";
+	CHECK(g.netplay_blockers("nbajamte").empty(), "netplay guard: nothing blocks when only ROM scripts are on");
+	for (auto &s : g.mods()) s.enabled = s.file == "ram.lua";
+	CHECK(g.netplay_blockers("nbajamte").size() == 1, "netplay guard: only enabled scripts count");
+	for (auto &s : g.mods()) s.enabled = false;
+	CHECK(g.netplay_blockers("nbajamte").empty(), "netplay guard: a disabled script does not block");
+	// backstop: with netplay on, a RAM write is a script error and on_frame does not run
+	for (auto &s : g.mods()) s.enabled = s.file == "ram.lua" || s.file == "frames.lua";
+	m = make_machine(100, pattern, 4);
+	g.set_netplay(true);
+	g.start("nbajamte", *m);
+	for (int i = 0; i < 4; i++) g.frame();
+	log = g.take_log();
+	CHECK(has("[Ram] error") && has("online"), "netplay backstop: RAM write raises a script error");
+	CHECK(!has("frame3"), "netplay backstop: on_frame is not run");
+	g.set_netplay(false);
+	g.start("nbajamte", *m);
+	for (int i = 0; i < 4; i++) g.frame();
+	log = g.take_log();
+	CHECK(!has("[Ram] error") && has("frame3"), "offline: the same scripts run normally");
+	g.stop();
+
 	// ---- mods.ini round trip ----
 	mod_script *p = find(mm, "patch.lua");
 	for (auto &s : mm.mods()) s.enabled = false;
