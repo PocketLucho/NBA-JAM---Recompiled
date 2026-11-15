@@ -40,7 +40,7 @@ is not available in the session), say so in the pull request instead of marking 
   `tools/headless/modtest`, and two scripts: `quarter_length.lua` and `no_select_timer.lua`.
 * Pull request [richvam/NBA-JAMs-Recomp#1](https://github.com/richvam/NBA-JAMs-Recomp/pull/1)
   (draft) adds controller remapping. Both touch `src/app/main.cpp` and the Makefile.
-* Limits of the engine in pull request 2 that Part 1 has to remove:
+* Limits of the engine in pull request 2 that Part 2 has to remove:
   * Options are value lists only. There is no plain on/off switch, no per-player choice,
     no grouping, and no way to change anything while a game is running.
   * Scripts cannot share code (no `require`), so every script would repeat the same
