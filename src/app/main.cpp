@@ -1,6 +1,7 @@
 // main.cpp - NBA JAM Recomp: one application for the whole NBA JAM saga.
 // Game picker at start-up, SDL2 video/audio/input, per-game NVRAM.
 #include "version.h"
+#include "paths.h"
 #include "games.h"
 #include "font.h"
 #include "lang.h"
@@ -257,7 +258,9 @@ private:
 	void message(const std::string &m, u32 ms = 2500) { m_message = m; m_message_until = SDL_GetTicks() + ms; }
 	std::string nv_path(const game_info &g) const { return path_join(path_join(m_base, "saves"), std::string(g.id) + ".nv"); }
 
-	std::string m_base, m_cfgpath;
+	std::string m_base, m_cfgpath;      // m_base = the user's data folder (paths.h)
+	app_paths m_paths;
+	void choose_data_folder();
 	config m_cfg;
 	SDL_Window *m_win = nullptr;
 	SDL_Renderer *m_ren = nullptr;
@@ -946,6 +949,12 @@ void app::about_frame()
 	std::string build = std::string(tr("compilacion ", "build ")) + app_commit() + "  " + app_build_date();
 	cv.text(cv.w / 2 - cv.text_w(build) / 2, 36, build, 0xffa0a0c0);
 	int y = 50;
+	{
+		// where the user's files are: the question people ask after installing
+		std::string where = std::string(m_paths.portable ? tr("Datos (portable): ", "Data (portable): ") : tr("Datos: ", "Data: ")) + m_base;
+		y = cv.text_wrap(12, y, where, 0xffa0a0c0);
+		y += 4;
+	}
 	auto line = [&](const std::string &s, u32 c = 0xffd8e0ff) { y = cv.text_wrap(12, y, s, c); };
 	auto gap = [&]() { y += 4; };
 	line(tr("Creado por Pocket_lucho con Claude (Anthropic)", "Created by Pocket_lucho with Claude (Anthropic)"), 0xffffe080);
@@ -1427,6 +1436,68 @@ bool app::game_frame()
 	return ran;
 }
 
+// Where the user's files live (R1.4): next to the executable for a portable copy, the
+// per-user folder otherwise. An installed copy that finds an older setup next to the
+// executable offers to move it, once.
+void app::choose_data_folder()
+{
+	char *bp = SDL_GetBasePath();
+	std::string exe = bp ? bp : ".";
+	SDL_free(bp);
+	const char *env = getenv("NBAJAM_DATA_DIR");
+	std::string user;
+	// SDL_GetPrefPath creates the folder, so only ask for it when it will be used
+	if (!(env && *env) && !file_exists(path_join(exe, "portable.txt")))
+		if (char *pp = SDL_GetPrefPath("", "NBAJamRecomp")) { user = pp; SDL_free(pp); }
+	m_paths = resolve_paths(exe, user, env);
+	if (legacy_setup_present(m_paths))
+	{
+		std::string text =
+			"Tus ajustes, partidas, mods y ROMs estan junto al programa. Esta version los guarda en tu carpeta de usuario:\n"
+			"Your settings, saves, mods and ROMs are next to the program. This version keeps them in your user folder:\n\n"
+			+ m_paths.data_dir + "\n\n"
+			"Mover / Move: los lleva alli (recomendado) / takes them there (recommended).\n"
+			"Dejar aqui / Keep here: todo sigue en esta carpeta (modo portable) / everything stays in this folder (portable mode).\n"
+			"Luego / Later: no cambia nada y se pregunta otra vez / nothing changes and you are asked again.";
+		const SDL_MessageBoxButtonData buttons[] = {
+			{ SDL_MESSAGEBOX_BUTTON_RETURNKEY_DEFAULT, 1, "Mover / Move" },
+			{ 0, 2, "Dejar aqui / Keep here" },
+			{ SDL_MESSAGEBOX_BUTTON_ESCAPEKEY_DEFAULT, 0, "Luego / Later" },
+		};
+		const SDL_MessageBoxData box = { SDL_MESSAGEBOX_INFORMATION, nullptr, "NBA JAM Recomp", text.c_str(), 3, buttons, nullptr };
+		int choice = 0;
+		if (SDL_ShowMessageBox(&box, &choice) != 0) choice = 0;
+		if (choice == 1)
+		{
+			auto failed = migrate_legacy_setup(m_paths);
+			if (!failed.empty())
+			{
+				std::string names;
+				for (const auto &f : failed) names += (names.empty() ? "" : ", ") + f;
+				SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_WARNING, "NBA JAM Recomp",
+					("No se pudo mover / Could not be moved: " + names + "\nSiguen en / They are still in: " + m_paths.exe_dir).c_str(), nullptr);
+			}
+		}
+		else if (choice == 2)
+		{
+			if (make_portable(m_paths)) m_paths = resolve_paths(exe, user, env);
+			else SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_WARNING, "NBA JAM Recomp",
+				"No se puede escribir en la carpeta del programa; se usa la carpeta de usuario.\nThe program folder cannot be written; the user folder is used.", nullptr);
+		}
+		else
+		{
+			// asked again next time; until then keep using the old setup where it is, if it can be written
+			app_paths old = m_paths;
+			old.data_dir = old.exe_dir;
+			std::string probe = path_join(exe, ".write_test");
+			if (write_whole_file(probe, {})) { remove(probe.c_str()); m_paths = old; m_paths.portable = true; }
+		}
+	}
+	seed_data_dir(m_paths);
+	m_base = m_paths.data_dir;
+	SDL_Log("data folder: %s%s", m_base.c_str(), m_paths.portable ? " (portable)" : "");
+}
+
 int app::run()
 {
 	SDL_SetHint(SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS, "1");
@@ -1436,9 +1507,7 @@ int app::run()
 		SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "NBA JAM Recomp", SDL_GetError(), nullptr);
 		return 1;
 	}
-	char *bp = SDL_GetBasePath();
-	m_base = bp ? bp : ".";
-	SDL_free(bp);
+	choose_data_folder();
 	m_cfgpath = path_join(m_base, "nbajam_recomp.ini");
 	load_config(m_cfgpath, m_cfg);
 	if (m_cfg.lang < 0)

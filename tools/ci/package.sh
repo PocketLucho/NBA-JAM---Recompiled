@@ -11,6 +11,9 @@ mkdir -p "$pkg" "$out"
 cp "$root"/dist/NBAJamRecomp/LEEME.txt "$root"/dist/NBAJamRecomp/README.txt "$pkg/"
 cp -r "$root"/dist/NBAJamRecomp/mods "$pkg/mods"
 mkdir -p "$pkg/roms"; cp "$root"/dist/NBAJamRecomp/roms/LEEME_README.txt "$pkg/roms/"
+# the archives are the portable form: settings, saves and roms stay in the unpacked folder.
+# (The installers of R3 leave this file out and use the per-user folder.)
+printf 'This file makes NBA JAM Recomp keep its settings, saves, mods and roms in this folder.\nDelete it to use the per-user folder instead.\nCon este archivo, NBA JAM Recomp guarda ajustes, partidas, mods y roms en esta carpeta.\nBorralo para usar la carpeta de usuario.\n' > "$pkg/portable.txt"
 case $os in
   windows) cp "$exe" "$pkg/NBAJamRecomp.exe" ;;
   linux)   cp "$exe" "$pkg/NBAJamRecomp"; strip "$pkg/NBAJamRecomp" ;;

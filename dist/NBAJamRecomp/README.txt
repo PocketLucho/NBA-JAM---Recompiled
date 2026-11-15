@@ -137,3 +137,12 @@ HOW IT IS MADE
 
 NBA JAM, NBA Hangtime and Midway are trademarks of their owners. Non-profit
 fan project, not affiliated with them.
+
+WHERE YOUR FILES ARE KEPT
+-------------------------
+This package is portable: the file portable.txt next to the program makes it keep
+settings, saves, screenshots, controller profiles, mods and roms in this folder.
+Without portable.txt the program uses your user folder instead
+(Windows: %APPDATA%\NBAJamRecomp, Linux: ~/.local/share/NBAJamRecomp), so it can be
+installed somewhere it cannot write. If it then finds an older setup next to the
+program it offers to move it. The About screen shows the folder in use.

@@ -63,6 +63,12 @@ jobs:
           build/linux/luatest | tee luatest.log
           grep -q ", 0 failed" luatest.log
 
+      - name: Data folder tests (no ROM needed)
+        run: |
+          set -o pipefail
+          build/linux/pathtest | tee pathtest.log
+          grep -q ", 0 failed" pathtest.log
+
       - name: Version string matches the tag
         run: |
           got=$(build/NBAJamRecomp-linux --version)

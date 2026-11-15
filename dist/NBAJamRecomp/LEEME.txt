@@ -137,3 +137,12 @@ COMO SE HA HECHO
 
 NBA JAM, NBA Hangtime y Midway son marcas de sus propietarios. Proyecto de
 aficionados sin animo de lucro, sin relacion con ellos.
+
+DONDE SE GUARDAN TUS ARCHIVOS
+-----------------------------
+Este paquete es portable: el archivo portable.txt junto al programa hace que los
+ajustes, partidas, capturas, perfiles de mando, mods y roms se guarden en esta carpeta.
+Sin portable.txt el programa usa tu carpeta de usuario
+(Windows: %APPDATA%\NBAJamRecomp, Linux: ~/.local/share/NBAJamRecomp), para poder
+instalarse donde no puede escribir. Si entonces encuentra una configuracion antigua
+junto al programa, ofrece moverla. La pantalla Acerca de muestra la carpeta en uso.
