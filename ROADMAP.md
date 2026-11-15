@@ -71,7 +71,7 @@ All Opus unless marked. Each one extends `src/app/mods.{h,cpp}` and `mods/README
 | 1.3 | **Option types.** Add `type = "toggle"`, `type = "players"` (a tick per player 1 to 4, stored as a bit mask), `type = "range"` (min, max, step), and `group = "..."` headings. Options can declare `conflicts = { ids }`; the menu greys out the loser. Existing value-list options keep working. | Menu screenshot under Xvfb; `mods.ini` round-trips every type |
 | 1.4 | **In-game mods menu.** A key (and pad button) opens the mods page over the running game, offline only. Options marked `live = true` apply at once through an `on_option(id, value)` hook; the others say "applies next game". | Toggle a live option mid-game in `modtest` and see the write |
 | 1.5 | **Events.** `mods/lib/jam.lua` watches the game's own state variables and calls `on_matchup()`, `on_game_start()`, `on_quarter(n)`, `on_game_end()`. One implementation per game family, selected by `nba.game`. | Headless run to tip-off logs each event once, in order |
-| 1.6 | **Input and drawing.** `nba.press(player, buttons, frames)` queues cabinet inputs (merged with the real ones before `set_inputs`, and part of the netplay input stream). `nba.text(x, y, str)` draws on the frontend overlay, never in the game's frame buffer. | Scripted start press reaches team select; overlay text in a screenshot |
+| 1.6 | **Input and drawing.** `nba.press(player, buttons, frames)` queues cabinet inputs (merged with the real ones before `set_inputs`, and part of the netplay input stream). `nba.text(x, y, str)`, `nba.rect(x, y, w, h, color)` and `nba.line(...)` draw on the frontend overlay in game-screen coordinates, never in the game's frame buffer. | Scripted start press reaches team select; overlay text and a box in a screenshot |
 | 1.7 | **Netplay sync.** The host sends its enabled scripts, their options and a hash of each script and lib file with the game start. Clients apply exactly that set, or are told which file differs. The lobby lists the active scripts. Remove the 0.3 guard. Scripts get `nba.netplay` so a script can refuse to run online. | `nettest`: two peers with different local settings run 10 000 frames with a RAM-writing script and equal state hashes |
 | 1.8 (Sonnet) | **Test harness.** Extend `modtest` with a `--expect` file: after N frames, assert that symbol X holds value Y. Add `tools/build_program_roms.sh`, which builds only the program ROMs of the three source games with `gspasm` (no art, no emu2), so any session can test against them. | One command builds the three program ROMs and runs every script's expectations |
 
@@ -202,6 +202,7 @@ Ordered by value for effort. Each is a separate small pull request, Sonnet unles
 | `show_info.lua` | Always-on shot percentage, turbo values, on-fire counters and an input display on the overlay |
 | `stats_export.lua` (Opus for the API) | Writes the box score of each finished game to `stats/` as CSV and JSON. Needs a new write-only, folder-limited `nba.save()` |
 | `cpu_vs_cpu.lua` | Full four-quarter game between two CPU teams for watching or streaming |
+| `hitboxes.lua` (Opus first) | Fighting-game style boxes on the overlay: each player's body box, the reach used for steals, shoves and blocks while the move is active, the ball, the rim and the goaltending zone. Colours per type, a switch for each, and frame-step while paused. Opus traces the collision code (`COLL2.ASM` in T.E., the player and ball collision routines in Hangtime) and the world-to-screen projection; Sonnet ports it to the other games |
 
 **Convenience**
 
@@ -210,6 +211,18 @@ Ordered by value for effort. Each is a separate small pull request, Sonnet unles
 | `auto_initials.lua` | Enters each player's saved initials and PIN at the record screen through `nba.press`, so records load without typing |
 | `random_matchup.lua` | Random team and player pairings, with an option to exclude teams |
 | `sound_options.lua` | In-game music off and announcer off on games that have no code for them |
+
+**Down the road: Fantasy Draft**
+
+`fantasy_draft.lua` is the largest script in Part 1 and comes after everything above,
+because it depends on the picker from Phase 4, the events from 1.5 and netplay sync from 1.7.
+
+| ID | Model | Task | Check |
+|---|---|---|---|
+| 6.F1 | Opus | Trace how a selected team becomes two players on court: the roster tables, attribute tables, head and body art pointers, name plates and announcer name calls. Decide what can be mixed freely (any two players on one side) and what cannot (for example uniforms and team name on the scoreboard). | Written note; a hand-made mixed pair plays a headless quarter with correct heads, names and stats |
+| 6.F2 | Opus | Draft screen on the frontend overlay before team select: 2 to 4 drafters, snake order, a pick timer, the full player pool with attributes, hidden characters included when `unlock_players.lua` allows them. Picks are made with the normal controls. | Scripted four-player draft ends with four distinct legal picks |
+| 6.F3 | Sonnet | Options: draft order (random, loser picks first, fixed), pool (current rosters, expanded rosters, everyone), no duplicate players, and saved draft results that can be replayed. Port to every game. | Headless on each supported game |
+| 6.F4 | Opus | Netplay: the draft runs in lockstep as part of the game's input stream, so all peers see the same picks. | `nettest` draft with four peers, equal hashes |
 
 Each script gets the same treatment as Phase 3: symbols from the table, a headless
 expectation, both languages, the README list updated by Haiku.
@@ -228,7 +241,11 @@ expectation, both languages, the README list updated by Haiku.
 
 * **NBA JAM 1993 and the ROM-only Hangtime revisions** have no symbols. Every address
   there is reverse engineered, and those ROMs must be supplied by the user in the working
-  session; they cannot be stored in the repository or downloaded by an agent.
+  session; they cannot be stored in the repository or downloaded by an agent. Uploads do
+  not carry over between sessions, so each session that tests on them needs `nbajam.zip`,
+  `nbahangt.zip` and `nbamht.zip` attached again. `nbajamte.zip` is only needed for the
+  T.E. sound ROMs; the T.E., SE and Maximum Hangtime 1.3 programs build from the public
+  sources.
 * **Per-frame writes can fight the game.** Prefer one write at the right moment over a
   write every frame, and prefer a ROM patch in `on_load` when the value is a constant.
 * **Desyncs.** Any script that reads real time, random numbers outside the game, or local
