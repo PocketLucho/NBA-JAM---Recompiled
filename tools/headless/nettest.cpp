@@ -1,8 +1,11 @@
 // nettest - run one side of a netplay session headless with scripted inputs.
+// MODS=<dir> enables every script in <dir>, as the app does with the user's mods; the run
+// refuses to start (exit code 3) if one of them writes RAM or has an on_frame hook.
 // usage: nettest <base> <game> host <port> <frames> <delay> [loss]
 //        nettest <base> <game> client <ip> <port> <frames> [loss]
 #include "games.h"
 #include "netplay.h"
+#include "mods.h"
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
@@ -29,6 +32,21 @@ int main(int argc, char **argv)
 	if (argc < 6) { fprintf(stderr, "usage\n"); return 1; }
 	std::string base = argv[1], id = argv[2], role = argv[3];
 	bool host = role == "host";
+	mod_manager mods;
+	if (const char *md = getenv("MODS"))
+	{
+		mods.scan(md, "");
+		for (auto &s : mods.mods()) s.enabled = true;
+		auto blocked = mods.netplay_blockers(id);
+		if (!blocked.empty())
+		{
+			std::string names;
+			for (auto &b : blocked) names += (names.empty() ? "" : ", ") + b;
+			fprintf(stderr, "%s: refused to start: Lua mods that write RAM or run every frame are on: %s\n", role.c_str(), names.c_str());
+			return 3;
+		}
+		mods.set_netplay(true);
+	}
 	netplay np;
 	std::string err;
 	int frames, delay = 4;
@@ -64,6 +82,7 @@ int main(int argc, char **argv)
 		if (!m) { fprintf(stderr, "%s\n", err.c_str()); return 1; }
 		dip_settings d;
 		m->set_dips(d);
+		mods.start(id, *m);
 		m->reset();
 		np.host_start(id, m->fingerprint(), d, m->nvram(), delay);
 	}
@@ -76,6 +95,7 @@ int main(int argc, char **argv)
 		}
 		m = cat.create(*gi, err);
 		if (!m) { np.client_ready(false, err); return 1; }
+		mods.start(id, *m);
 		if (m->fingerprint() != np.start_fingerprint()) { np.client_ready(false, "ROMs distintas"); np.poll(); fprintf(stderr, "fingerprint mismatch\n"); return 1; }
 		m->set_nvram(np.start_nvram());
 		m->set_dips(np.start_dips());
@@ -95,6 +115,7 @@ int main(int argc, char **argv)
 		m->set_inputs(in);
 		m->run_frame();
 		std::vector<float> a; m->take_audio(a);
+		mods.frame();
 		u32 h = m->state_hash();
 		if (np.frame() % 300 == 0) printf("%u %08x\n", np.frame(), h);
 		np.frame_done(h);

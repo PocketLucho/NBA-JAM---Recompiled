@@ -54,3 +54,11 @@ no_select_timer.lua.
 
 Online games: the program ROM is part of the netplay fingerprint, so all players need
 the same mods turned on with the same options.
+
+Online play
+-----------
+For now, an online game does not start while a mod that has an on_frame hook or that
+writes RAM (nba.write8 / write16 / write32) is on for that game: the players could not be
+kept in sync. Mods that only patch the ROM in on_load work online; every player must
+have the same ones on with the same options. ("Quarter length" has an on_frame hook for
+quarters longer than 9 minutes, so it has to be off online.)

@@ -263,6 +263,7 @@ private:
 	void draw_background(canvas &cv);
 	float aspect_value() const { static const float a[4] = { 4.0f / 3.0f, 16.0f / 9.0f, 16.0f / 10.0f, 0.0f }; return a[std::clamp(m_cfg.aspect, 0, 3)]; }
 	void save_screenshot(const u32 *px, int w, int h);
+	std::string net_mod_block(const std::string &game_id);
 	void refresh_availability();
 	void message(const std::string &m, u32 ms = 2500) { m_message = m; m_message_until = SDL_GetTicks() + ms; }
 	std::string nv_path(const game_info &g) const { return path_join(path_join(m_base, "saves"), std::string(g.id) + ".nv"); }
@@ -570,6 +571,7 @@ bool app::start_game(int index, bool net_client)
 		m_mach->set_dips(m_cfg.dips);
 	}
 	// Lua mods patch the ROM / hook frames; they also count in the netplay fingerprint
+	m_mods.set_netplay(m_net_game);
 	m_mods.start(g.id, *m_mach);
 	m_mach->reset();
 	m_cur_game = index;
@@ -1274,6 +1276,19 @@ void app::net_menu_frame()
 	SDL_Delay(16);
 }
 
+// Interim netplay guard (roadmap 0.3): scripts that run every frame or write RAM are not
+// covered by the netplay fingerprint, so an online game does not start while one is on.
+std::string app::net_mod_block(const std::string &game_id)
+{
+	auto b = m_mods.netplay_blockers(game_id);
+	if (b.empty()) return "";
+	std::string names;
+	for (const auto &n : b) names += (names.empty() ? "" : ", ") + n;
+	return tr("No se puede jugar en red con estos mods Lua activos (escriben en RAM o se ejecutan cada frame): ",
+	          "Online play is not possible with these Lua mods on (they write RAM or run every frame): ")
+	     + names + tr(". Desactivalos en el menu Mods Lua.", ". Turn them off in the Lua mods menu.");
+}
+
 void app::net_lobby_frame()
 {
 	m_net.poll();
@@ -1289,6 +1304,8 @@ void app::net_lobby_frame()
 
 	if (host && m_menu_ok)
 	{
+		std::string blocked = net_mod_block(g.id);
+		if (!blocked.empty()) { message(blocked, 8000); return; }
 		m_net_game = true;
 		if (!start_game(m_sel)) { m_net_game = false; m_net.stop(); m_screen = screen::net_menu; return; }
 		m_net.host_start(g.id, m_mach->fingerprint(), m_cfg.dips, m_mach->nvram(), m_cfg.net_delay);
@@ -1302,6 +1319,7 @@ void app::net_lobby_frame()
 		std::string why;
 		if (idx < 0) why = tr("juego desconocido: ", "unknown game: ") + m_net.start_game_id();
 		else if (!m_avail[size_t(idx)]) why = std::string(tr("no tienes ", "you don't have ")) + game_list()[size_t(idx)].title;
+		if (why.empty()) why = net_mod_block(game_list()[size_t(idx)].id);
 		if (why.empty())
 		{
 			m_net_game = true;

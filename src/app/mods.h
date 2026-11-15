@@ -39,6 +39,9 @@ struct mod_script
 	std::string name, description, error;
 	std::vector<std::string> supported;  // empty = any game
 	std::vector<mod_option> options;
+	// found when the script is scanned; used by the interim netplay guard (roadmap 0.3)
+	bool has_frame = false;              // defines on_frame
+	bool writes_ram = false;             // mentions nba.write8 / write16 / write32
 	// user settings
 	bool enabled = false;
 	bool all_games = true;
@@ -66,6 +69,15 @@ public:
 	std::vector<std::string> take_log();                         // messages for the UI
 	int active_count() const { return int(m_running.size()); }
 
+	// Interim netplay guard (roadmap 0.3, removed again by 1.7). The netplay fingerprint only
+	// covers the program ROM, so two players whose scripts write RAM or run every frame would
+	// pass the lobby check and desync later. netplay_blockers lists the names of the enabled
+	// scripts for this game that do so; a netplay game must not start while it is not empty.
+	// set_netplay(true) is the backstop: RAM writes raise a script error and on_frame hooks
+	// are not run until it is cleared.
+	std::vector<std::string> netplay_blockers(const std::string &game_id) const;
+	void set_netplay(bool on) { m_netplay = on; }
+
 private:
 	struct running
 	{
@@ -79,6 +91,7 @@ private:
 	std::string m_game;
 	arcade_machine *m_mach = nullptr;
 	u32 m_frame = 0;
+	bool m_netplay = false;
 	std::vector<std::string> m_log;
 
 	lua_State *new_state(mod_script *mod, bool with_game);

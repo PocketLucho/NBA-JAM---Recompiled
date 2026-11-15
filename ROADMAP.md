@@ -323,6 +323,14 @@ R1.1: `.github/workflows/release.yml`, the scripts in `tools/ci/` and the ROM-fr
 33 Lua engine checks, both packages). Not marked done until the workflow is green on a
 pull request and a test tag has produced a draft release.
 
+0.3 is done: `mod_manager::netplay_blockers` lists the enabled scripts that define
+`on_frame` or mention `nba.write8/16/32`; host and client refuse to start an online game
+while it is not empty, naming the scripts, and as a backstop RAM writes raise a script
+error online. `nettest` (now with `MODS=<dir>`) refuses to start with a RAM-writing or
+`on_frame` script, and still runs in sync with a ROM-only script on both sides. Note that
+the shipped `quarter_length.lua` has an `on_frame` hook (for quarters over 9 minutes), so
+it cannot be used online until 1.7.
+
 **Gate:** pull request 2 merged; CI green.
 
 ## Phase 1: engine extensions

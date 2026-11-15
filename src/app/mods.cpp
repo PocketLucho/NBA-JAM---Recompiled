@@ -109,6 +109,11 @@ struct mod_api
 		if (!m || !m->m_mach) luaL_error(L, "no game is running");
 		return *m->m_mach;
 	}
+	static void no_ram_write_online(lua_State *L)
+	{
+		mod_manager *m = mgr(L);
+		if (m && m->m_netplay) luaL_error(L, "RAM writes are not allowed in an online game");
+	}
 	static std::vector<u8> &rom(lua_State *L)
 	{
 		std::vector<u8> *r = mach(L).program_rom();
@@ -204,7 +209,7 @@ struct mod_api
 		return 1;
 	}
 	static int read16(lua_State *L) { lua_pushinteger(L, mach(L).peek16(u32(luaL_checkinteger(L, 1)))); return 1; }
-	static int write16(lua_State *L) { mach(L).poke16(u32(luaL_checkinteger(L, 1)), u16(luaL_checkinteger(L, 2))); return 0; }
+	static int write16(lua_State *L) { no_ram_write_online(L); mach(L).poke16(u32(luaL_checkinteger(L, 1)), u16(luaL_checkinteger(L, 2))); return 0; }
 	static int read32(lua_State *L)
 	{
 		u32 a = u32(luaL_checkinteger(L, 1));
@@ -214,6 +219,7 @@ struct mod_api
 	}
 	static int write32(lua_State *L)
 	{
+		no_ram_write_online(L);
 		u32 a = u32(luaL_checkinteger(L, 1)), v = u32(luaL_checkinteger(L, 2));
 		arcade_machine &m = mach(L);
 		m.poke16(a, u16(v));
@@ -228,6 +234,7 @@ struct mod_api
 	}
 	static int write8(lua_State *L)
 	{
+		no_ram_write_online(L);
 		u32 a = u32(luaL_checkinteger(L, 1));
 		u16 v = u16(luaL_checkinteger(L, 2) & 0xff);
 		arcade_machine &m = mach(L);
@@ -298,6 +305,23 @@ static std::string field_str(lua_State *L, int t, const char *k)
 	return s;
 }
 
+// Does the script text mention write8 / write16 / write32 other than as rom_write*? A text
+// scan on purpose: it also catches writes behind an alias (local w = nba.write16) or inside
+// a branch that has not run yet. A mention in a comment counts too; that errs on the safe side.
+static bool source_writes_ram(const std::string &path)
+{
+	std::ifstream f(P(path), std::ios::binary);
+	std::string s((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+	for (const std::string w : { "write8", "write16", "write32" })
+		for (size_t p = s.find(w); p != std::string::npos; p = s.find(w, p + 1))
+		{
+			char after = p + w.size() < s.size() ? s[p + w.size()] : ' ';
+			bool rom = p >= 4 && s.compare(p - 4, 4, "rom_") == 0;
+			if (!rom && !isalnum(static_cast<unsigned char>(after)) && after != '_') return true;
+		}
+	return false;
+}
+
 bool mod_manager::load_meta(mod_script &m)
 {
 	lua_State *L = new_state(&m, false);
@@ -364,8 +388,20 @@ bool mod_manager::load_meta(mod_script &m)
 	}
 	lua_pop(L, 1);
 	if (m.name.empty()) m.name = u8s(P(m.file).stem());
+	lua_getglobal(L, "on_frame");
+	m.has_frame = lua_isfunction(L, -1);
+	lua_pop(L, 1);
 	lua_close(L);
+	m.writes_ram = source_writes_ram(m.path);
 	return true;
+}
+
+std::vector<std::string> mod_manager::netplay_blockers(const std::string &game_id) const
+{
+	std::vector<std::string> r;
+	for (const auto &m : m_mods)
+		if (m.applies_to(game_id) && (m.has_frame || m.writes_ram)) r.push_back(m.name);
+	return r;
 }
 
 void mod_manager::scan(const std::string &dir, const std::string &ini)
@@ -521,7 +557,7 @@ void mod_manager::frame()
 	for (size_t i = 0; i < m_running.size();)
 	{
 		running &r = m_running[i];
-		if (r.has_frame)
+		if (r.has_frame && !m_netplay)
 		{
 			lua_getglobal(r.L, "on_frame");
 			lua_pushinteger(r.L, m_frame);
