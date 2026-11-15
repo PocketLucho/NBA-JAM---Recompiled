@@ -1,7 +1,11 @@
 # NBA JAM Recomp roadmap
 
-This file is the working plan for the project. Part 1 (Lua scripts) is specified below;
-later parts are added as they are agreed. Each task names the model that should do it:
+This file is the working plan for the project. Part 1 (widescreen and display) and Part 2
+(Lua scripts) are specified below; later parts are added as they are agreed.
+
+**Order of work:** Phase 0 (in Part 2: merge the two open pull requests) goes first,
+because everything touches `src/app/main.cpp`. Then Part 1, phases W1 to W6. Then the
+rest of Part 2 from Phase 1 on. W1 is small and can ship on its own as soon as it is done. Each task names the model that should do it:
 
 | Model | Use it for |
 |---|---|
@@ -45,10 +49,120 @@ is not available in the session), say so in the pull request instead of marking 
   * The netplay fingerprint covers the program ROM only. Two players with different
     scripts that write RAM pass the lobby check and desync later.
   * No input injection, no on-screen drawing, no events (game start, quarter, game end).
+* Display, checked in `src/app/gl_present.cpp` and `src/app/main.cpp` and against a 16:9
+  screenshot of Maximum Hangtime:
+  * Every game renders 400 x 254 pixels, meant for a 4:3 tube. The 16:9 and 16:10 modes
+    (F7) only stretch that picture sideways. Nothing extra is shown, and everything is a
+    third too wide at 16:9.
+  * With integer scaling on (the default), the height is the largest whole multiple of
+    254 that fits: 1016 of 1080 lines, 2032 of 2160. The width follows from it, so the
+    picture has a black border on all four sides even in a "widescreen" mode.
+  * There are four fixed choices (4:3, 16:9, 16:10, fill). Nothing matches an ultrawide
+    monitor except "fill", which stretches further still.
+  * The game draws into video memory 512 pixels wide, of which 400 are shown. A true 16:9
+    view at this pixel shape needs about 533 columns and 21:9 about 700, so real
+    widescreen cannot be had by showing more of the existing memory.
 
 ---
 
-# Part 1: Lua scripts
+# Part 1: Widescreen and display
+
+Goal: every game fills 16:9, 16:10, 21:9 and 32:9 screens up to 4K correctly. "Correctly"
+means two separate things, and the roadmap treats them separately:
+
+* **Presentation:** whatever picture the game produces is scaled without distortion and
+  without needless borders, at any window size.
+* **True widescreen:** during play the game shows *more court* to the left and right
+  instead of a stretched picture, with round players and a round ball.
+
+## Phase W1: presentation fixes
+
+No game changes. All in `src/app/`.
+
+| ID | Model | Task | Check |
+|---|---|---|---|
+| W1.1 | Opus | Replace the four aspect choices with: **Original 4:3**, **Widescreen** (true widescreen where the game supports it, otherwise 4:3 centred; see W3), **Stretch** (today's behaviour, named honestly). The target shape comes from the window, not a fixed list, so any monitor works. Old `aspect=` values in the `.ini` map to the nearest new one. | Unit test of `output_rect` over the resolution list below |
+| W1.2 | Opus | Scaling modes: **Integer** (as now), **Fit** (fills the height exactly; whole-number prescale followed by a linear step so pixels stay crisp at 4.25x or 8.5x), **Smooth**. Default becomes Fit. Integer never picks a size that leaves more than a set share of the screen empty without saying so. | Screenshots at 1080p and 4K: no top or bottom border in Fit; pixel columns even |
+| W1.3 | Sonnet | Shaders at high resolution: scanlines, CRT mask and curvature are computed from the output size, so they look the same at 1080p, 1440p and 4K, and still line up when the picture is wider than 4:3. | Screenshot set per shader at three sizes |
+| W1.4 | Sonnet | Fullscreen: borderless at the desktop resolution, correct on high-DPI displays (drawable size, not window size), multi-monitor aware. Overlay text and menus scale with the output instead of staying tiny at 4K. | Run under Xvfb at each size; menu text height is a fixed share of the screen |
+| W1.5 | Sonnet | Side-fill choice for anything shown 4:3 on a wider screen: black, dimmed blur of the picture, or a user-supplied bezel image. | Screenshot of each |
+| W1.6 | Sonnet | `tools/headless/viewtest`: renders one frame through the presenter at a given window size and writes a PNG, so every later check is one command. Resolution list used by all Part 1 checks: 1024x768, 1280x720, 1280x800, 1920x1080, 1920x1200, 2560x1080, 2560x1440, 2560x1600, 3440x1440, 3840x1600, 3840x2160, 5120x1440. | Runs in CI on a synthetic test pattern (no ROM) |
+
+**Gate:** advisor compares screenshots at 1080p, 4K and 3440x1440 in all three modes. W1
+can be released here.
+
+## Phase W2: how the games draw (research)
+
+Opus. No code ships from this phase; the output is a design note in the pull request.
+
+| ID | Task |
+|---|---|
+| W2.1 | Trace the T.E. display path from the sources: the screen constants in `DISP.EQU` (`SCRNST`, `SCRNEND`, `SCRNMID`, the 56-pixel left pad), the blitter clip window, the object list's off-screen culling, the court scroll limits (`WRLDMID`, the player and scroll minimum and maximum in `PLYR.ASM`), and the background block drawing in `BAKGND.ASM`. List every place that assumes 400 columns. |
+| W2.2 | Sort those places into **view only** (changing them shows more but the game plays the same) and **affects play** (for example anything the CPU players or the off-screen arrows decide from screen position). The aim is a widescreen that is view only, so a widescreen player and a 4:3 player can share a netplay game. If that proves impossible, say where and why. |
+| W2.3 | Measure how much court art exists beyond the 4:3 view at each scroll position, per game. That sets the widest true view (it may be narrower than 32:9) and what happens at the ends of the court. |
+| W2.4 | Classify every screen of each game: gameplay, or fixed screen (attract, team select, versus, halftime, stats such as "Best overall player", initials, test menu). Fixed screens are drawn for 400 columns and stay 4:3. |
+| W2.5 | Repeat W2.1 to W2.4 for Hangtime and Maximum Hangtime from the sources, and note the Wolf Unit differences. NBA JAM 1993 by pattern match against T.E. and disassembly. |
+| W2.6 | Choose the engine approach and justify it: a wider host-side video memory (the emulated pitch grows past 512 and the patched game addresses it), or keeping the game at 400 and capturing its draw list to re-render wider in the frontend. State the cost of each in game patches and in risk. |
+
+**Gate:** advisor approves the design note before W3 starts. This is the decision the
+rest of Part 1 rests on.
+
+## Phase W3: true widescreen on T.E. 4.0
+
+| ID | Model | Task | Check |
+|---|---|---|---|
+| W3.1 | Opus | Engine: variable visible width in `src/board/midway_video.cpp` and `tunit.cpp` per the W2.6 choice, off by default. With it off, output is bit-for-bit what it is today. | Frame hashes of a 4:3 headless run unchanged |
+| W3.2 | Opus | Game patches for T.E. 4.0, applied in memory at load (never to files): clip window, culling, scroll limits, background fill. The view width is a parameter, not a fixed 16:9. | Headless tip-off at 533 columns: court drawn edge to edge, no garbage columns, players round |
+| W3.3 | Opus | Screen switching: gameplay uses the wide view; fixed screens return to 400 columns centred with the W1.5 side fill. No flicker or one-frame stretch on the change. | Scripted run through attract, team select, game, halftime, stats |
+| W3.4 | Sonnet | HUD: score, clock, turbo bars, player arrows and messages keep their place relative to the screen edges or centre as designed in W2. | Screenshot at 16:9 and 21:9 |
+| W3.5 | Opus | Netplay: if W2.2 held, prove a 4:3 peer and a 16:9 peer stay in sync and keep widescreen out of the fingerprint. If not, add the view width to the fingerprint and the lobby. | `nettest`, 10 000 frames, equal hashes |
+
+**Gate:** advisor plays a full game at 16:9 and 21:9.
+
+## Phase W4: the other games
+
+Sonnet ports, on the pattern W3 proved; Opus only where a game differs.
+
+| ID | Model | Task |
+|---|---|---|
+| W4.1 | Sonnet | T.E. SE 5.02 (same code base; confirm patch sites by pattern). |
+| W4.2 | Opus | Wolf Unit engine side (`wunit.cpp`), then Maximum Hangtime 1.3 from the sources. |
+| W4.3 | Sonnet | Hangtime L1.3 / L1.1 and Maximum Hangtime 1.03 by pattern from W4.2. |
+| W4.4 | Opus | NBA JAM 1993. |
+
+Check for each: the W3.2 and W3.3 checks on that game.
+
+## Phase W5: ultrawide
+
+| ID | Model | Task | Check |
+|---|---|---|---|
+| W5.1 | Opus | 21:9 (about 700 columns) and 32:9 (about 1067) on every game. Where W2.3 found the art runs out, cap the view at the widest clean width and side-fill the rest. | Screenshots at 2560x1080, 3440x1440, 3840x1600, 5120x1440 at both ends of the court |
+| W5.2 | Sonnet | Menu: a "Maximum view width" setting (16:9, 21:9, widest available) for players who find the widest view too zoomed out for play. | Setting round-trips through the `.ini` |
+| W5.3 | Sonnet | Performance at 4K and 5120x1440 with the CRT shaders: full speed on integrated graphics, or the shader steps down and says so. | Frame time log |
+
+## Phase W6: release
+
+| ID | Model | Task |
+|---|---|---|
+| W6.1 | Haiku | READMEs and in-package docs: the new modes, keys, `.ini` settings, which games support true widescreen and how wide. |
+| W6.2 | Sonnet | Full screenshot matrix: every game, every listed resolution, every mode, attached to the release pull request. |
+
+**Gate:** advisor sign-off.
+
+## Part 1 risks
+
+* **True widescreen is a change to each game, not to the scaler.** The ROM-only games
+  (NBA JAM 1993, Hangtime L1.3 / L1.1, Maximum Hangtime 1.03) are the hardest, as in Part 2.
+* **The court may not be wide enough for 32:9.** W2.3 answers this; the fallback is a
+  capped view with side fill.
+* **Play could change.** If culling or scroll limits feed game logic, a wide view plays
+  slightly differently and cannot mix with 4:3 online. W2.2 exists to find that early.
+* **Part 2 depends on this.** The Lua overlay (`nba.text`, `nba.rect`) and the hitbox
+  script use game-screen coordinates, which must follow the wide view.
+
+---
+
+# Part 2: Lua scripts
 
 ## Phase 0: land the foundation
 
@@ -95,7 +209,7 @@ one `mods/lib/codes_<game>.lua` per game, with one entry per code:
 | 2.1 | Opus | **T.E. 4.0 and SE 5.02** from the sources (`SCORE.ASM`, `PLYR.ASM`, `SELECT.ASM`, `ATTRACT.ASM`). Record for each code the variable it sets, when the game clears it, and what tournament mode overrides. Diff SE against T.E. for added or changed codes. |
 | 2.2 | Opus | **Maximum Hangtime 1.3** from the sources (`SELECT3.ASM`, `BB3.ASM`, `PLYR.ASM`, `COMBOS.DOC`). Note the rule that in human against human both sides must enter a number code. |
 | 2.3 | Opus | **Hangtime L1.3 / L1.1 and Maximum Hangtime 1.03** (no source). Carry the 2.2 symbols over by opcode pattern; verify each in the disassembly (`tools/dasm`). |
-| 2.4 | Opus | **NBA JAM 1993 rev 3.01** (no source). Start from the T.E. patterns for shared code, then disassemble. Slowest item in Part 1; needs the user's `nbajam.zip` in the session. |
+| 2.4 | Opus | **NBA JAM 1993 rev 3.01** (no source). Start from the T.E. patterns for shared code, then disassemble. Slowest item in Part 2; needs the user's `nbajam.zip` in the session. |
 | 2.5 | Haiku | Spanish and English labels for every entry; a table of all codes per game in the README. |
 
 Already confirmed from the sources while preparing this roadmap:
@@ -214,7 +328,7 @@ Ordered by value for effort. Each is a separate small pull request, Sonnet unles
 
 **Down the road: Fantasy Draft**
 
-`fantasy_draft.lua` is the largest script in Part 1 and comes after everything above,
+`fantasy_draft.lua` is the largest script in Part 2 and comes after everything above,
 because it depends on the picker from Phase 4, the events from 1.5 and netplay sync from 1.7.
 The draft happens inside the game session, and it has three ways to play:
 
@@ -264,6 +378,6 @@ expectation, both languages, the README list updated by Haiku.
 
 ---
 
-# Part 2 and later
+# Part 3 and later
 
 To be added.
