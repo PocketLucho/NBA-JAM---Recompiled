@@ -216,13 +216,22 @@ Ordered by value for effort. Each is a separate small pull request, Sonnet unles
 
 `fantasy_draft.lua` is the largest script in Part 1 and comes after everything above,
 because it depends on the picker from Phase 4, the events from 1.5 and netplay sync from 1.7.
+The draft happens inside the game session, and it has three ways to play:
+
+* **Versus, offline:** 2 to 4 people at one machine draft, then play each other.
+* **Versus, online:** the same over netplay.
+* **Ladder, offline:** one or two people on the same side draft a pair, then take it
+  through the game's normal run against every CPU team, exactly as a stock team would:
+  the same opponent order, defeated-teams tracking, difficulty ramp and ending.
 
 | ID | Model | Task | Check |
 |---|---|---|---|
 | 6.F1 | Opus | Trace how a selected team becomes two players on court: the roster tables, attribute tables, head and body art pointers, name plates and announcer name calls. Decide what can be mixed freely (any two players on one side) and what cannot (for example uniforms and team name on the scoreboard). | Written note; a hand-made mixed pair plays a headless quarter with correct heads, names and stats |
-| 6.F2 | Opus | Draft screen on the frontend overlay before team select: 2 to 4 drafters, snake order, a pick timer, the full player pool with attributes, hidden characters included when `unlock_players.lua` allows them. Picks are made with the normal controls. | Scripted four-player draft ends with four distinct legal picks |
+| 6.F2 | Opus | Draft screen shown in game, in place of team select: 1 to 4 drafters, snake order, a pick timer, the full player pool with attributes, hidden characters included when `unlock_players.lua` allows them. Picks are made with the normal controls. | Scripted four-player draft ends with four distinct legal picks |
 | 6.F3 | Sonnet | Options: draft order (random, loser picks first, fixed), pool (current rosters, expanded rosters, everyone), no duplicate players, and saved draft results that can be replayed. Port to every game. | Headless on each supported game |
 | 6.F4 | Opus | Netplay: the draft runs in lockstep as part of the game's input stream, so all peers see the same picks. | `nettest` draft with four peers, equal hashes |
+| 6.F5 | Opus | **Ladder mode.** Trace how the game tracks the run against the CPU: the teams-defeated record tied to the player's initials, the next-opponent choice, the difficulty ramp and the end sequence. Make a drafted pair count as one entrant in that run, kept for the whole ladder (the pair is stored with the script's settings, not in the game's NVRAM record format). Options: CPU opponents keep their real rosters, or the CPU drafts too from what is left. | Scripted run: drafted pair wins two games in a row, the second opponent is the one the stock game would pick, and the pair is unchanged |
+| 6.F6 | Sonnet | Ladder save slots: several drafted pairs, each with its own progress, resumable from the mods menu. Port to every game. | Quit and resume mid-ladder in a headless run |
 
 Each script gets the same treatment as Phase 3: symbols from the table, a headless
 expectation, both languages, the README list updated by Haiku.
