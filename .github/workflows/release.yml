@@ -1,1 +1,121 @@
+# Builds on every pull request and push to main; packages and drafts a GitHub Release when a
+# version tag (v*) is pushed. All the build logic lives in tools/ci/*.sh so it can be run
+# by hand on any Ubuntu/WSL machine. No game data is used or produced anywhere in here.
+name: build-and-release
 
+on:
+  pull_request:
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref_type != 'tag' }}
+
+env:
+  # Naming only; R1.2 puts the real version inside the program.
+  PKG_VERSION: ${{ github.ref_type == 'tag' && github.ref_name || format('dev-{0}', github.sha) }}
+
+jobs:
+  linux:
+    name: Linux x64 (build, ROM-free Lua tests, package)
+    runs-on: ubuntu-22.04      # oldest current runner: keeps the glibc requirement low
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build tools and SDL2 development headers
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends build-essential zip \
+            libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev libxfixes-dev libxss-dev \
+            libwayland-dev libxkbcommon-dev libasound2-dev libpulse-dev libudev-dev libdrm-dev libgbm-dev libgl-dev
+
+      - name: Cache SDL2 (pinned 2.30.9, built from the checked source tarball)
+        uses: actions/cache@v4
+        with:
+          path: deps/sdl2linux
+          key: sdl2-linux-${{ runner.os }}-${{ hashFiles('tools/ci/fetch_sdl.sh') }}
+
+      - name: Fetch SDL2
+        run: tools/ci/fetch_sdl.sh linux deps/sdl2linux
+
+      - name: Build libcore, liblua, modtest, luatest and the app
+        run: tools/ci/build_all.sh linux deps/sdl2linux build/NBAJamRecomp-linux
+
+      - name: Lua engine tests (no ROM needed)
+        run: |
+          set -o pipefail
+          build/linux/luatest | tee luatest.log
+          grep -q ", 0 failed" luatest.log
+
+      - name: Package
+        run: tools/ci/package.sh linux build/NBAJamRecomp-linux "NBAJamRecomp-${PKG_VERSION}-linux-x64" dist-out
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-x64
+          path: dist-out/*
+          if-no-files-found: error
+
+  windows:
+    name: Windows x64 (cross-build, package)
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install the MinGW-w64 cross compiler
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends build-essential mingw-w64 zip
+
+      - name: Cache SDL2 (pinned 2.30.9, official MinGW package)
+        uses: actions/cache@v4
+        with:
+          path: deps/sdl2win
+          key: sdl2-win-${{ hashFiles('tools/ci/fetch_sdl.sh') }}
+
+      - name: Fetch SDL2
+        run: tools/ci/fetch_sdl.sh win deps/sdl2win
+
+      - name: Build libcore, liblua and NBAJamRecomp.exe
+        run: tools/ci/build_all.sh win deps/sdl2win build/NBAJamRecomp.exe
+
+      - name: Package
+        run: tools/ci/package.sh windows build/NBAJamRecomp.exe "NBAJamRecomp-${PKG_VERSION}-windows-x64" dist-out
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-x64
+          path: dist-out/*
+          if-no-files-found: error
+
+  release:
+    name: Draft GitHub Release
+    if: github.ref_type == 'tag'
+    needs: [linux, windows]
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write          # create the release
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: assets
+          merge-multiple: true
+
+      - name: Checksums
+        working-directory: assets
+        run: sha256sum * | tee SHA256SUMS.txt
+
+      - name: Create the draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ github.ref_name }}" assets/* \
+            --repo "${{ github.repository }}" --draft --verify-tag \
+            --title "NBA JAM Recomp ${{ github.ref_name }}" \
+            --notes "Draft. Windows: .zip. Linux: .tar.gz. Bring your own ROMs (see README). Release notes are added in R2.2."

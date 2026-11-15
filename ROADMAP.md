@@ -314,8 +314,14 @@ Check for each: `viewtest` screenshots in both languages, and the U1.2 automated
 **Status:** 0.1 is done. The merged tree builds the Linux app and `modtest`, and both
 scripts pass their headless runs on NBA JAM rev 3.01, Hangtime L1.1 and Maximum Hangtime
 1.03 (`quarter_length` at 1:30 starts every quarter at 1:30). T.E. 4.0 and SE 5.02 were
-not rerun, because their program ROMs were not in the session. 0.2 is built together
-with R1.1.
+not rerun, because their program ROMs were not in the session. They have since been run
+on a Windows machine (modtest built with clang, program ROMs from the user's source zips):
+`quarter_length` at 1:30 starts the clock at 1:30 on both, and `no_select_timer` keeps the
+game on team select where the unmodded game starts by itself. 0.2 is built together with
+R1.1: `.github/workflows/release.yml`, the scripts in `tools/ci/` and the ROM-free
+`tools/headless/luatest` are written and run by hand under WSL (Linux and Windows builds,
+33 Lua engine checks, both packages). Not marked done until the workflow is green on a
+pull request and a test tag has produced a draft release.
 
 **Gate:** pull request 2 merged; CI green.
 
