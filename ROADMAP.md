@@ -1,11 +1,20 @@
 # NBA JAM Recomp roadmap
 
-This file is the working plan for the project. Part 1 (widescreen and display) and Part 2
-(Lua scripts) are specified below; later parts are added as they are agreed.
+This file is the working plan for the project. Part 1 (widescreen and display), Part 2
+(interface overhaul) and Part 3 (Lua scripts) are specified below; later parts are added
+as they are agreed.
 
-**Order of work:** Phase 0 (in Part 2: merge the two open pull requests) goes first,
-because everything touches `src/app/main.cpp`. Then Part 1, phases W1 to W6. Then the
-rest of Part 2 from Phase 1 on. W1 is small and can ship on its own as soon as it is done. Each task names the model that should do it:
+**Order of work:**
+
+1. Phase 0 (in Part 3): merge the two open pull requests. Everything touches
+   `src/app/main.cpp`, so this goes first.
+2. W1 (Part 1): scaling and border fixes. Small; can be released on its own.
+3. Part 2, phases U1 to U7: the interface overhaul.
+4. W2 to W6 (Part 1): true widescreen and ultrawide.
+5. Part 3 from Phase 1 on: Lua scripts.
+
+The interface comes before the Lua work so that the mod, controller and pause menus are
+built once, in the new style. Each task names the model that should do it:
 
 | Model | Use it for |
 |---|---|
@@ -40,7 +49,7 @@ is not available in the session), say so in the pull request instead of marking 
   `tools/headless/modtest`, and two scripts: `quarter_length.lua` and `no_select_timer.lua`.
 * Pull request [richvam/NBA-JAMs-Recomp#1](https://github.com/richvam/NBA-JAMs-Recomp/pull/1)
   (draft) adds controller remapping. Both touch `src/app/main.cpp` and the Makefile.
-* Limits of the engine in pull request 2 that Part 2 has to remove:
+* Limits of the engine in pull request 2 that Part 3 has to remove:
   * Options are value lists only. There is no plain on/off switch, no per-player choice,
     no grouping, and no way to change anything while a game is running.
   * Scripts cannot share code (no `require`), so every script would repeat the same
@@ -152,17 +161,131 @@ Check for each: the W3.2 and W3.3 checks on that game.
 ## Part 1 risks
 
 * **True widescreen is a change to each game, not to the scaler.** The ROM-only games
-  (NBA JAM 1993, Hangtime L1.3 / L1.1, Maximum Hangtime 1.03) are the hardest, as in Part 2.
+  (NBA JAM 1993, Hangtime L1.3 / L1.1, Maximum Hangtime 1.03) are the hardest, as in Part 3.
 * **The court may not be wide enough for 32:9.** W2.3 answers this; the fallback is a
   capped view with side fill.
 * **Play could change.** If culling or scroll limits feed game logic, a wide view plays
   slightly differently and cannot mix with 4:3 online. W2.2 exists to find that early.
-* **Part 2 depends on this.** The Lua overlay (`nba.text`, `nba.rect`) and the hitbox
+* **Part 3 depends on this.** The Lua overlay (`nba.text`, `nba.rect`) and the hitbox
   script use game-screen coordinates, which must follow the wide view.
 
 ---
 
-# Part 2: Lua scripts
+# Part 2: Interface overhaul
+
+Goal: every screen of the application looks like an NBA JAM menu and can be reached and
+used with a controller alone. Layout and lettering follow the Sigil Jam T.E. editor
+shown as the reference: tabs along the top, panelled lists with a solid highlight bar,
+chunky gradient lettering, a status line along the bottom.
+
+## Decisions
+
+* **Font and art:** an original chunky gradient font, drawn for this project, ships with
+  the application, so the menus always work. When the user's ROMs are present, the real
+  lettering, team logos and backgrounds are read from them at run time and used instead.
+  None of that art is ever stored in the repository or in a release.
+* **Theme per game:** one layout everywhere; colours, background and lettering follow the
+  highlighted game (NBA JAM 1993, T.E. and SE, Hangtime, Maximum Hangtime). A neutral
+  theme is used when a game's ROM is missing.
+* **Inputs:** controller, keyboard, mouse and touch all work on every screen. A
+  controller is enough for everything, including text entry.
+* **Included:** menu music and sounds, a pause menu during play, an on-screen keyboard.
+
+## What exists today
+
+* Screens: game picker, online menu, lobby, about; plus Lua mods (pull request 2) and
+  Controls (pull request 1). All are drawn as plain 8x8 text in `src/app/main.cpp`.
+* A controller can move, confirm and go back in the picker, and Y opens the online menu.
+  Everything else needs a keyboard: video mode, scaling, aspect, scanlines, fullscreen,
+  screenshot, help, test switch, reset, pause, volume, service credit (F1 to F12, P, 9,
+  - and +), typing the host's IP address, and language choice.
+
+## Phase U1: menu toolkit
+
+Opus. New files under `src/app/ui/`; `main.cpp` shrinks instead of growing.
+
+| ID | Task | Check |
+|---|---|---|
+| U1.1 | **Widgets:** tab bar, panel with title strip, scrolling list with group headers (as the team headers in the reference), highlight bar, toggle, value picker, slider, button grid, status line, confirm dialog, toast message. Layout is in fractions of the screen, so it holds from 1024x768 to 5120x1440 using the W1 scaling. | `viewtest` screenshots of a widget gallery at four sizes |
+| U1.2 | **Focus navigation:** every widget is reachable by direction pad or stick, with one rule for moving between panels and tabs (shoulder buttons change tab). Hold-to-repeat with acceleration in long lists. Focus is never lost and never lands on a disabled item. | Automated walk: from any screen, every item is reached by directions alone and Back always returns to the picker |
+| U1.3 | **Unified input layer:** one set of menu actions (move, confirm, back, tab left/right, page up/down, context action) fed by controller, keyboard, mouse (hover, click, wheel) and touch (tap, drag to scroll). The Controls profiles from pull request 1 are respected in game; menus always use a fixed, standard mapping so a bad remap cannot lock anyone out. | Each input type drives the gallery in a scripted test |
+| U1.4 | **Button prompts:** the status line shows what each button does on the current screen, with glyphs that match the connected controller (Xbox, PlayStation, Nintendo, keyboard) and switch when the last-used device changes. | Screenshot per controller family |
+| U1.5 | **Strings:** every label goes through the Spanish/English table; text that does not fit is shortened or scrolled, never clipped mid-letter. | Both languages rendered on every screen |
+
+**Gate:** advisor reviews the gallery and the navigation rule before any screen is rebuilt.
+
+## Phase U2: lettering and themes
+
+| ID | Model | Task | Check |
+|---|---|---|---|
+| U2.1 | Opus | **Project font:** an original bitmap font in the chunky, bevelled, gradient style: capitals, digits, punctuation, accented Spanish letters, in three sizes (title, list, small). Drawn new; not traced from the games. Gradient and outline colours come from the theme. | Full character sheet screenshot |
+| U2.2 | Opus | **ROM art reader:** find and decode the lettering, team logos, backgrounds and menu palettes in each game's graphics ROM, using the image tables (`IMGTBL.ASM`, the `.TBL` files and `tools/imgfile.py` for the source games; by pattern for the ROM-only ones). Decoded at run time into memory only. Any image that fails to decode falls back to the project art without an error on screen. | Each game: logos and lettering decoded and shown in a test screen; removing the ROM shows the fallback |
+| U2.3 | Sonnet | **Themes:** a small theme file per game family (colours, gradient, background, highlight, which ROM images to use). The picker changes theme as the highlighted game changes, with a short cross-fade. | Screenshot of the picker on each game |
+| U2.4 | Sonnet | Glyphs missing from a game's own font (accents, symbols, lower case if absent) come from the project font, matched in size and colour. | Spanish strings render fully in every theme |
+
+## Phase U3: rebuild the existing screens
+
+Sonnet, on the U1 toolkit. Each screen replaces its plain-text version; behaviour stays.
+
+| ID | Screen | Notes |
+|---|---|---|
+| U3.1 | **Game picker** | Games as a list with logo, year, board and status; missing games greyed with the reason in the side panel; the first-run case (no ROMs) explains where to put files. |
+| U3.2 | **Settings** (new) | Tabs: Video (mode, scaling, shader, scanlines, side fill, fullscreen), Sound (volume, menu music, menu sounds), Game (free play, players, country, video clips), Language. Replaces the F4 to F7, F11 and volume keys, which keep working as shortcuts. |
+| U3.3 | **Controls** | The profile editor from pull request 1 in the new style; binding a button is done by pressing it, with a controller-only way to cancel. |
+| U3.4 | **Lua mods** | The mod list and mod pages from pull request 2 in the new style; this is the screen Part 3 extends. |
+| U3.5 | **Online** | Host, join, lobby with player list and delay setting. |
+| U3.6 | **About and help** | Controls reference generated from the current bindings, not fixed text. |
+
+Check for each: `viewtest` screenshots in both languages, and the U1.2 automated walk.
+
+## Phase U4: on-screen keyboard
+
+| ID | Model | Task | Check |
+|---|---|---|---|
+| U4.1 | Sonnet | A letter grid in the style of the games' initials entry, with layouts for text, numbers and IP addresses (digits and dot only). Opens wherever text is needed: host address, profile names, save-slot names. A physical keyboard still types directly, and paste still works. | Enter an IP address and a profile name with a controller only |
+| U4.2 | Sonnet | Recent hosts list on the join screen, so an address is typed once. | Rejoin from the list in a scripted test |
+
+## Phase U5: pause menu
+
+| ID | Model | Task | Check |
+|---|---|---|---|
+| U5.1 | Opus | A controller shortcut opens the menu over the running game. Default: hold Start and Back together for half a second (and the Guide button, and Esc on the keyboard); the shortcut is configurable and can never be unbound entirely. The game is paused while it is open, offline. | Open and close in a headless run; game state hash unchanged across the pause |
+| U5.2 | Sonnet | Contents: Resume, Video, Sound, Controls, Lua mods, Screenshot, Insert coin, Service credit, Test switch, Reset game, Quit to picker. This covers every function the F-keys and other keyboard-only keys have today. | Checklist: each old key has a menu entry |
+| U5.3 | Opus | Online: the menu opens without pausing the game for anyone; items that would change the game (reset, test switch, mods) are disabled; Leave game asks for confirmation. | `nettest`: one peer opens the menu for 600 frames, hashes stay equal |
+
+## Phase U6: menu music and sounds
+
+| ID | Model | Task | Check |
+|---|---|---|---|
+| U6.1 | Opus | Play menu music and cursor, confirm and back sounds from the user's ROMs by running the game's own sound board with the right command numbers (T-Unit ADPCM board, Wolf Unit DCS), per theme. Nothing is extracted to disk. | Each game: a tune and three sounds play in a headless audio capture |
+| U6.2 | Sonnet | Fallback when no ROM is present: short original sounds made for the project, or silence. Switches for music and sounds, separate volume, and the "Music on" indicator in the status line. | Settings round-trip; silence with both off |
+
+## Phase U7: finish
+
+| ID | Model | Task |
+|---|---|---|
+| U7.1 | Opus | **Controller-only audit:** unplug the keyboard in a scripted run and complete every flow: first start with no ROMs, pick a game, change every setting, rebind a controller, enable a mod, host and join online, pause and quit. Anything that needs a key is a bug. |
+| U7.2 | Sonnet | Steam Deck and small screens: 1280x800 touch and controller check, minimum text size, safe margins for TVs. |
+| U7.3 | Haiku | READMEs and in-package docs rewritten around the menus instead of the F-keys; strings reviewed in both languages. |
+
+**Gate:** advisor sign-off on the audit and on screenshots of every screen in every theme.
+
+## Part 2 risks
+
+* **The real lettering and logos depend on decoding each game's art.** The source games
+  have image tables; NBA JAM 1993 and the ROM-only Hangtime sets need them found by hand.
+  Until then those games use the project font, which is why it comes first.
+* **Team logos and player likenesses are NBA property.** They are only ever shown from the
+  user's own ROM, never redrawn or shipped.
+* **Not a copy of Sigil.** The reference sets the layout and feel; the font, colours and
+  code are this project's own.
+* **Later parts add screens.** The Lua option types (Part 3, task 1.3), the mods page in
+  the pause menu (1.4), the draft screen and the hitbox switches must use the U1 widgets,
+  so they inherit controller support.
+
+---
+
+# Part 3: Lua scripts
 
 ## Phase 0: land the foundation
 
@@ -182,8 +305,8 @@ All Opus unless marked. Each one extends `src/app/mods.{h,cpp}` and `mods/README
 |---|---|---|
 | 1.1 | **Shared libraries.** `nba.include("lib/name.lua")`, limited to `mods/lib/`, no path escapes. Files in `lib/` are not listed as mods. | A mod using a lib runs; `../` is rejected |
 | 1.2 | **Symbols.** `nba.sym("name")` returns the bit address for the running revision, or nil. Source-built games: `tools/gspasm` already writes a `.map`; add `tools/map2sym.py` to turn it into `mods/sym/<game>_<program CRC32>.lua` (names and addresses only). ROM-only games: the same file format, filled by hand in Phase 2, each entry carrying the opcode pattern that proves it. | `nba.sym("scores")` equals the `.map` value on T.E. 4.0, SE 5.02 and Maximum Hangtime 1.3 |
-| 1.3 | **Option types.** Add `type = "toggle"`, `type = "players"` (a tick per player 1 to 4, stored as a bit mask), `type = "range"` (min, max, step), and `group = "..."` headings. Options can declare `conflicts = { ids }`; the menu greys out the loser. Existing value-list options keep working. | Menu screenshot under Xvfb; `mods.ini` round-trips every type |
-| 1.4 | **In-game mods menu.** A key (and pad button) opens the mods page over the running game, offline only. Options marked `live = true` apply at once through an `on_option(id, value)` hook; the others say "applies next game". | Toggle a live option mid-game in `modtest` and see the write |
+| 1.3 | **Option types.** Using the menu widgets from U1, add `type = "toggle"`, `type = "players"` (a tick per player 1 to 4, stored as a bit mask), `type = "range"` (min, max, step), and `group = "..."` headings. Options can declare `conflicts = { ids }`; the menu greys out the loser. Existing value-list options keep working. | Menu screenshot under Xvfb; `mods.ini` round-trips every type |
+| 1.4 | **In-game mods menu.** The mods page is reachable from the pause menu built in U5, offline only. Options marked `live = true` apply at once through an `on_option(id, value)` hook; the others say "applies next game". | Toggle a live option mid-game in `modtest` and see the write |
 | 1.5 | **Events.** `mods/lib/jam.lua` watches the game's own state variables and calls `on_matchup()`, `on_game_start()`, `on_quarter(n)`, `on_game_end()`. One implementation per game family, selected by `nba.game`. | Headless run to tip-off logs each event once, in order |
 | 1.6 | **Input and drawing.** `nba.press(player, buttons, frames)` queues cabinet inputs (merged with the real ones before `set_inputs`, and part of the netplay input stream). `nba.text(x, y, str)`, `nba.rect(x, y, w, h, color)` and `nba.line(...)` draw on the frontend overlay in game-screen coordinates, never in the game's frame buffer. | Scripted start press reaches team select; overlay text and a box in a screenshot |
 | 1.7 | **Netplay sync.** The host sends its enabled scripts, their options and a hash of each script and lib file with the game start. Clients apply exactly that set, or are told which file differs. The lobby lists the active scripts. Remove the 0.3 guard. Scripts get `nba.netplay` so a script can refuse to run online. | `nettest`: two peers with different local settings run 10 000 frames with a RAM-writing script and equal state hashes |
@@ -209,7 +332,7 @@ one `mods/lib/codes_<game>.lua` per game, with one entry per code:
 | 2.1 | Opus | **T.E. 4.0 and SE 5.02** from the sources (`SCORE.ASM`, `PLYR.ASM`, `SELECT.ASM`, `ATTRACT.ASM`). Record for each code the variable it sets, when the game clears it, and what tournament mode overrides. Diff SE against T.E. for added or changed codes. |
 | 2.2 | Opus | **Maximum Hangtime 1.3** from the sources (`SELECT3.ASM`, `BB3.ASM`, `PLYR.ASM`, `COMBOS.DOC`). Note the rule that in human against human both sides must enter a number code. |
 | 2.3 | Opus | **Hangtime L1.3 / L1.1 and Maximum Hangtime 1.03** (no source). Carry the 2.2 symbols over by opcode pattern; verify each in the disassembly (`tools/dasm`). |
-| 2.4 | Opus | **NBA JAM 1993 rev 3.01** (no source). Start from the T.E. patterns for shared code, then disassemble. Slowest item in Part 2; needs the user's `nbajam.zip` in the session. |
+| 2.4 | Opus | **NBA JAM 1993 rev 3.01** (no source). Start from the T.E. patterns for shared code, then disassemble. Slowest item in Part 3; needs the user's `nbajam.zip` in the session. |
 | 2.5 | Haiku | Spanish and English labels for every entry; a table of all codes per game in the README. |
 
 Already confirmed from the sources while preparing this roadmap:
@@ -328,7 +451,7 @@ Ordered by value for effort. Each is a separate small pull request, Sonnet unles
 
 **Down the road: Fantasy Draft**
 
-`fantasy_draft.lua` is the largest script in Part 2 and comes after everything above,
+`fantasy_draft.lua` is the largest script in Part 3 and comes after everything above,
 because it depends on the picker from Phase 4, the events from 1.5 and netplay sync from 1.7.
 The draft happens inside the game session, and it has three ways to play:
 
@@ -378,6 +501,6 @@ expectation, both languages, the README list updated by Haiku.
 
 ---
 
-# Part 3 and later
+# Part 4 and later
 
 To be added.
