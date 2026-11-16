@@ -44,9 +44,9 @@ struct config
 	bool smooth = false;          // legacy (SDL renderer fallback)
 	bool scanlines = false;       // legacy
 	int shader = 3;               // 0 sharp, 1 smooth, 2 scanlines, 3 CRT, 4 CRT curved
-	bool integer_scale = true;    // pixel perfect vertical scale
+	view_scaling scaling = view_scaling::fit;     // F5: integer, fit, smooth (view.h)
 	float scan_strength = 0.6f;
-	int aspect = 0;               // 0 = 4:3, 1 = 16:9 (stretched), 2 = 16:10, 3 = fill window
+	view_shape shape = view_shape::original;      // F7: original 4:3, widescreen, stretch (view.h)
 	bool use_opengl = true;
 	float volume = 0.8f;
 	bool news = true;             // ask the Releases feed for the latest version at start (R2.3)
@@ -83,7 +83,8 @@ static void save_config(const std::string &path, config &c)
 	std::ofstream f(path);
 	f << "# NBA JAM Recomp - configuration\n[general]\n# news=1 asks github.com once at start for the latest release (only to tell you; nothing is downloaded)\nnews=" << c.news << "\n\n[video]\nscale=" << c.scale << "\nfullscreen=" << c.fullscreen
 	  << "\n# shader: 0 sharp, 1 smooth, 2 scanlines, 3 CRT, 4 curved CRT\nshader=" << c.shader
-	  << "\n# aspect: 0 = 4:3 original, 1 = 16:9 widescreen, 2 = 16:10, 3 = fill the window\naspect=" << c.aspect << "\ninteger_scale=" << c.integer_scale << "\nscanline_strength=" << c.scan_strength
+	  << "\n# view: original (4:3), widescreen (more court on games that support it, otherwise 4:3), stretch (fills the window)\nview=" << view_shape_id(c.shape)
+	  << "\n# scaling: integer (whole multiples of the game's lines), fit (fills the height, crisp pixels), smooth (fills the height, filtered)\nscaling=" << view_scaling_id(c.scaling) << "\nscanline_strength=" << c.scan_strength
 	  << "\n# opengl=0 uses the basic SDL renderer (no shaders)\nopengl=" << c.use_opengl
 	  << "\n\n[audio]\nvolume=" << c.volume
 	  << "\n\n[network]\nport=" << c.net_port << "\ninput_delay=" << c.net_delay << "\nlast_host=" << c.net_host
@@ -107,6 +108,8 @@ static void load_config(const std::string &path, config &c)
 	std::ifstream f(path);
 	if (!f) { save_config(path, c); return; }
 	std::string line;
+	bool have_view = false;
+	int old_aspect = -1;
 	while (std::getline(f, line))
 	{
 		line = trim(line);
@@ -121,8 +124,12 @@ static void load_config(const std::string &path, config &c)
 		else if (k == "smooth") c.smooth = atoi(v.c_str()) != 0;
 		else if (k == "scanlines") c.scanlines = atoi(v.c_str()) != 0;
 		else if (k == "shader") c.shader = std::clamp(atoi(v.c_str()), 0, kNumShaders - 1);
-		else if (k == "aspect") c.aspect = std::clamp(atoi(v.c_str()), 0, 3);
-		else if (k == "integer_scale") c.integer_scale = atoi(v.c_str()) != 0;
+		else if (k == "view") { view_shape_from_id(v.c_str(), c.shape); have_view = true; }
+		else if (k == "scaling") view_scaling_from_id(v.c_str(), c.scaling);
+		// settings of versions before W1. aspect= becomes the nearest new shape unless view= is there.
+		// integer_scale= is not carried over: it was the old default, and Fit is the new one.
+		else if (k == "aspect") old_aspect = std::clamp(atoi(v.c_str()), 0, 3);
+		else if (k == "integer_scale") continue;
 		else if (k == "scanline_strength") c.scan_strength = std::clamp(float(atof(v.c_str())), 0.0f, 1.0f);
 		else if (k == "opengl") c.use_opengl = atoi(v.c_str()) != 0;
 		else if (k == "port") c.net_port = std::clamp(atoi(v.c_str()), 1024, 65535);
@@ -150,6 +157,7 @@ static void load_config(const std::string &path, config &c)
 				}
 		}
 	}
+	if (!have_view && old_aspect >= 0) c.shape = view_shape_from_old_aspect(old_aspect);
 }
 
 // ---------------------------------------------------------------------------
@@ -250,7 +258,13 @@ private:
 	cabinet_inputs gather_inputs();
 	void draw_overlay(canvas &cv);
 	void draw_background(canvas &cv);
-	float aspect_value() const { static const float a[4] = { 4.0f / 3.0f, 16.0f / 9.0f, 16.0f / 10.0f, 0.0f }; return a[std::clamp(m_cfg.aspect, 0, 3)]; }
+	// where the picture goes: the game uses the player's settings, menus are always 4:3 and fitted
+	view_rect view_for(int win_w, int win_h, int w, int h, bool game) const
+	{
+		return game ? compute_view(win_w, win_h, w, h, m_cfg.shape, m_cfg.scaling)
+		            : compute_view(win_w, win_h, w, h, view_shape::original, view_scaling::fit);
+	}
+	void say_view(bool scaling_changed);
 	void save_screenshot(const u32 *px, int w, int h);
 	std::string net_mod_block(const std::string &game_id);
 	void refresh_availability();
@@ -359,16 +373,46 @@ void app::open_window()
 	if (!m_ren) m_ren = SDL_CreateRenderer(m_win, -1, SDL_RENDERER_SOFTWARE);
 }
 
+// Message after F5 / F7: the two settings, and what they mean on this window. Integer
+// scaling never leaves a large part of the screen empty without saying so.
+void app::say_view(bool scaling_changed)
+{
+	int ww = 0, wh = 0;
+	if (m_gl.ok()) m_gl.drawable_size(ww, wh);
+	else if (m_ren) SDL_GetRendererOutputSize(m_ren, &ww, &wh);
+	view_rect r = compute_view(ww, wh, 400, 254, m_cfg.shape, m_cfg.scaling);
+	// one line of at most 49 characters fits over the game picture
+	std::string s;
+	if (scaling_changed)
+	{
+		s = std::string("Scaling: ") + view_scaling_name(m_cfg.scaling);
+		if (m_cfg.scaling == view_scaling::integer && r.unused > kIntegerUnusedWarning)
+			s += " (" + std::to_string(int(r.unused * 100 + 0.5f)) + "% of the screen unused)";
+		else if (m_cfg.scaling == view_scaling::integer) s += " (whole-number size)";
+		else if (m_cfg.scaling == view_scaling::fit) s += " (fills the height, crisp)";
+		else s += " (fills the height, filtered)";
+	}
+	else
+	{
+		s = std::string("Shape: ") + view_shape_name(m_cfg.shape);
+		if (m_cfg.shape == view_shape::widescreen) s += " (4:3 here, no wide view yet)";
+		if (m_cfg.shape == view_shape::stretch) s += " (picture is distorted)";
+	}
+	message(s, 4000);
+}
+
 void app::present(const u32 *pixels, int w, int h, bool game)
 {
 	int shader = game ? m_cfg.shader : 0;
 	if (m_shot && !game) save_screenshot(pixels, w, h);
 	if (m_gl.ok())
 	{
-		m_gl.present(pixels, w, h, shader, game ? m_cfg.integer_scale : false, m_cfg.scan_strength, game ? aspect_value() : 4.0f / 3.0f);
+		int ww, wh;
+		m_gl.drawable_size(ww, wh);
+		m_gl.present(pixels, w, h, shader, view_for(ww, wh, w, h, game), m_cfg.scan_strength);
 		return;
 	}
-	bool smooth = shader == 1;
+	bool smooth = shader == 1 || (game && m_cfg.scaling == view_scaling::smooth);
 	if (!m_tex || w != m_texw || h != m_texh || m_cfg.smooth != smooth)
 	{
 		if (m_tex) SDL_DestroyTexture(m_tex);
@@ -380,8 +424,8 @@ void app::present(const u32 *pixels, int w, int h, bool game)
 	SDL_UpdateTexture(m_tex, nullptr, pixels, w * 4);
 	int ww, wh;
 	SDL_GetRendererOutputSize(m_ren, &ww, &wh);
-	SDL_Rect dst;
-	output_rect(ww, wh, w, h, game && m_cfg.integer_scale, game ? aspect_value() : 4.0f / 3.0f, dst.x, dst.y, dst.w, dst.h);
+	view_rect vr = view_for(ww, wh, w, h, game);
+	SDL_Rect dst = { vr.x, vr.y, vr.w, vr.h };
 	SDL_SetRenderDrawColor(m_ren, 0, 0, 0, 255);
 	SDL_RenderClear(m_ren);
 	SDL_RenderCopy(m_ren, m_tex, nullptr, &dst);
@@ -496,14 +540,13 @@ void app::poll_events()
 				}
 				if (k == SDLK_F5)
 				{
-					m_cfg.integer_scale = !m_cfg.integer_scale;
-					message(m_cfg.integer_scale ? "Integer scaling (pixel perfect): ON" : "Integer scaling: OFF (fill screen)");
+					m_cfg.scaling = view_scaling((int(m_cfg.scaling) + 1) % 3);
+					say_view(true);
 				}
 				if (k == SDLK_F7)
 				{
-					static const char *en[4] = { "4:3 (original)", "16:9 widescreen", "16:10 widescreen", "fill the window" };
-					m_cfg.aspect = (m_cfg.aspect + 1) % 4;
-					message(std::string("Aspect: ") + en[m_cfg.aspect]);
+					m_cfg.shape = view_shape((int(m_cfg.shape) + 1) % 3);
+					say_view(false);
 				}
 				if (k == SDLK_F6)
 				{
@@ -635,12 +678,13 @@ void app::draw_overlay(canvas &cv)
 		line("Esc  back to menu          P  pause", 0xffa0e0ff);
 		line("F2   TEST switch           F3 reset", 0xffa0e0ff);
 		line("F4   video: sharp/smooth/scanl./CRT", 0xffa0e0ff);
-		line("F5   integer scaling       F6 scanline str.", 0xffa0e0ff);
-		line("F7   aspect: 4:3 / 16:9 / 16:10 / fill", 0xffa0e0ff);
+		line("F5   scaling: integer/fit/smooth", 0xffa0e0ff);
+		line("F6   scanline strength", 0xffa0e0ff);
+		line("F7   shape: 4:3 / widescreen / stretch", 0xffa0e0ff);
 		line("F11  fullscreen            - / +  volume", 0xffa0e0ff);
 		line("F12  screenshot            9  service credit", 0xffa0e0ff);
 		y += 3;
-		line(std::string("Video: ") + shader_name(m_cfg.shader) + (m_cfg.integer_scale ? ", integer" : ""), 0xffb0b0b0);
+		line(std::string("Video: ") + shader_name(m_cfg.shader) + ", " + view_scaling_name(m_cfg.scaling) + ", " + view_shape_name(m_cfg.shape), 0xffb0b0b0);
 		line("Pads: Controls menu. Keys: nbajam_recomp.ini", 0xffb0b0b0);
 	}
 	if (m_net_game)

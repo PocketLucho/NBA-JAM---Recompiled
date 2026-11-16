@@ -76,9 +76,9 @@ CONTROLS (keyboard)
   F1   on-screen help                F2  TEST switch (service menu)
   F3   reset
   F4   video: Sharp -> Smooth -> Scanlines -> CRT -> Curved CRT
-  F5   integer scaling (pixel perfect) on/off
+  F5   scaling: Fit -> Smooth -> Integer
   F6   scanline strength
-  F7   aspect: 4:3 original -> 16:9 widescreen -> 16:10 -> fill the window
+  F7   shape: Original 4:3 -> Widescreen -> Stretch
   F11  fullscreen (or Alt+Enter)
   F12  screenshot (PNG in the screenshots\ folder; Print Screen works too)
   P    pause                         - / +  volume
@@ -92,15 +92,22 @@ in saves\.
 
 VIDEO (shaders)
 ---------------
-  The picture is drawn with OpenGL shaders. With integer scaling (F5) every
-  game line covers the same number of screen rows, so scanlines are perfect.
+  The picture is drawn with OpenGL shaders. Scaling (F5):
+    Fit          fills the height of the window; pixels stay crisp (default)
+    Smooth       the same size, filtered
+    Integer      every game line covers the same number of screen rows, so
+                 scanlines are perfect, but borders remain on most screens;
+                 the program tells you when they are large
+  Shape (F7):
+    Original 4:3 as the arcade monitor showed it
+    Widescreen   more court on the games that support it (none yet): 4:3 until then
+    Stretch      fills the whole window; the picture is distorted
     Sharp        clean pixels at any size
     Smooth       bilinear filtering
     Scanlines    dark gaps between lines; F6 changes the strength
     CRT          gaussian beam per line, RGB aperture mask and gamma
     Curved CRT   the same with tube curvature and vignette
-  F7 stretches the picture to widescreen (somewhat distorted) or to the whole
-  window. Without OpenGL 2.1 a basic mode is used (opengl=0 in the .ini forces
+  Without OpenGL 2.1 a basic mode is used (opengl=0 in the .ini forces
   it).
 
 

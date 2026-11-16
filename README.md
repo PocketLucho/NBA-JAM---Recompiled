@@ -98,9 +98,9 @@ Other keys:
 | F2 | test switch (the game's service menu) |
 | F3 | reset the game |
 | F4 | picture: sharp, smooth, scanlines, CRT, curved CRT |
-| F5 | whole-number scaling on or off |
+| F5 | scaling: Fit (fills the height, crisp pixels), Smooth (the same, filtered), Integer (whole-number size, may leave borders) |
 | F6 | scanline strength |
-| F7 | shape: 4:3, 16:9, 16:10 or fill the window (the wide ones stretch the picture) |
+| F7 | shape: Original 4:3, Widescreen (4:3 for now; more court on games that get a wide view later), Stretch (fills the window, distorts the picture) |
 | F11 or Alt+Enter | fullscreen |
 | F12 or Print Screen | screenshot, saved in `screenshots` |
 | P | pause |
@@ -158,8 +158,8 @@ nothing. To write your own, see [`mods/README.txt`](dist/NBAJamRecomp/mods/READM
 | A game is grey | Select it: the program says which files are missing. Check the table in [Where the ROMs go](#2-where-the-roms-go). |
 | "CMOS invalid, factory settings restored" the first time | Normal on a game's first start. Press any button. |
 | No picture, or a black window | Your graphics driver may lack OpenGL 2.1. Set `opengl=0` in `nbajam_recomp.ini` for the basic mode (no shaders). |
-| The picture is too wide | Press F7 until it says 4:3. The wide modes stretch the picture. |
-| Borders on every side | With whole-number scaling (F5) the picture only grows in whole steps. Press F5 to fill the height. |
+| The picture is too wide | Press F7 until it says "Original 4:3". "Stretch" distorts the picture. |
+| Borders on every side | That is Integer scaling, which only grows in whole steps. Press F5 until it says "Fit". |
 | A controller does nothing | Open **Controls**: the top line shows the pad the program sees. Select an action and press the button you want. |
 | I cannot find my saves or settings | Open **About**: the "Data" line shows the folder. |
 | Online: "your ROMs (or Lua mods) are not the same as the host's" | Use the same ROM files and switch the same mods on, with the same options. |
