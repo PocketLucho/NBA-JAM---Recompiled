@@ -4,7 +4,7 @@
 namespace ui
 {
 
-screen make_gallery()
+screen make_gallery(const std::vector<std::string> &themes)
 {
 	screen s;
 	s.title = "WIDGET GALLERY";
@@ -92,6 +92,19 @@ screen make_gallery()
 	t4.panels = { txt };
 
 	s.tabs = { t1, t2, t3, t4 };
+	if (!themes.empty())
+	{
+		// tab 5: the theme of each game family; the caller repaints the gallery in it
+		tab t5;
+		t5.name = "Themes";
+		panel pick;
+		pick.title = "Theme of each game";
+		pick.r = { 0.1f, 0.0f, 0.8f, 0.7f };
+		for (size_t i = 0; i < themes.size(); i++) pick.items.push_back(button(g_theme0 + int(i), themes[i]));
+		pick.items.push_back(label("A game without ROMs uses the neutral theme."));
+		t5.panels = { pick };
+		s.tabs.push_back(t5);
+	}
 	s.fix_focus();
 	return s;
 }
@@ -104,6 +117,7 @@ bool gallery_react(screen &s, const result &r, unsigned now)
 	case result::activated:
 		if (r.id == g_ask) s.ask("Reset the game? Anything not saved in the game's own memory is lost.", g_ask);
 		else if (r.id == g_toast) s.toast("Saved to nbajam_recomp.ini", now);
+		else if (r.id >= g_theme0 && r.id < g_theme0 + 50) {}        // the caller changes theme
 		else s.toast("Pressed: " + (s.find(r.id) ? s.find(r.id)->label : std::string("?")), now);
 		break;
 	case result::changed:

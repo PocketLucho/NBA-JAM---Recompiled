@@ -53,19 +53,19 @@ $(BUILD)/newstest: tools/headless/newstest.cpp src/app/news.cpp
 	$(CXX) $(CXXFLAGS) -Isrc/app $^ -lpthread -o $@
 
 # viewtest: the presenter on a synthetic test pattern (W1.6). SDL2L as for linux-app.
-$(BUILD)/viewtest: tools/headless/viewtest.cpp src/app/view.cpp src/app/gl_present.cpp src/app/png_read.cpp src/app/overlay.cpp src/app/ui/ui.cpp src/app/ui/gallery.cpp src/app/ui/lettering.cpp $(BUILD)/miniz.o
+$(BUILD)/viewtest: tools/headless/viewtest.cpp src/app/view.cpp src/app/gl_present.cpp src/app/png_read.cpp src/app/overlay.cpp src/app/ui/ui.cpp src/app/ui/gallery.cpp src/app/ui/lettering.cpp src/app/ui/themes.cpp $(BUILD)/miniz.o
 	@mkdir -p $(BUILD)
-	$(CXX) $(CXXFLAGS) -Isrc/app -Isrc/third_party/miniz -I$(SDL2L)/include/SDL2 tools/headless/viewtest.cpp src/app/view.cpp src/app/gl_present.cpp src/app/png_read.cpp src/app/overlay.cpp src/app/ui/ui.cpp src/app/ui/gallery.cpp src/app/ui/lettering.cpp $(BUILD)/miniz.o \
+	$(CXX) $(CXXFLAGS) -Isrc/app -Isrc/third_party/miniz -I$(SDL2L)/include/SDL2 tools/headless/viewtest.cpp src/app/view.cpp src/app/gl_present.cpp src/app/png_read.cpp src/app/overlay.cpp src/app/ui/ui.cpp src/app/ui/gallery.cpp src/app/ui/lettering.cpp src/app/ui/themes.cpp $(BUILD)/miniz.o \
 	  -L$(SDL2L)/lib -Wl,-Bstatic -lSDL2 -Wl,-Bdynamic -static-libstdc++ -static-libgcc -lm -ldl -lpthread -o $@
 
 # uitest: the menu toolkit (U1), no SDL and no display
-UI_SRC = src/app/ui/ui.cpp src/app/ui/gallery.cpp src/app/ui/lettering.cpp
+UI_SRC = src/app/ui/ui.cpp src/app/ui/gallery.cpp src/app/ui/lettering.cpp src/app/ui/themes.cpp
 $(BUILD)/uitest: tools/headless/uitest.cpp $(UI_SRC) $(BUILD)/miniz.o
 	@mkdir -p $(BUILD)
 	$(CXX) $(CXXFLAGS) -Isrc/app -Isrc/third_party/miniz $^ -o $@
 
 # arttest: the ROM art reader (U2.2) on a made-up ROM; with --roms, on the user's own
-ART_SRC = src/app/rom_art.cpp src/app/games.cpp src/app/romload.cpp src/app/ui/art_view.cpp src/app/ui/ui.cpp src/app/ui/lettering.cpp
+ART_SRC = src/app/rom_art.cpp src/app/games.cpp src/app/romload.cpp src/app/ui/art_view.cpp src/app/ui/ui.cpp src/app/ui/gallery.cpp src/app/ui/lettering.cpp src/app/ui/themes.cpp
 $(BUILD)/arttest: tools/headless/arttest.cpp $(ART_SRC) $(BUILD)/libcore.a $(BUILD)/miniz.o
 	$(CXX) $(CXXFLAGS) $(APP_INC) $< $(ART_SRC) $(BUILD)/miniz.o $(BUILD)/libcore.a -o $@
 
@@ -84,7 +84,7 @@ win:
 	x86_64-w64-mingw32-gcc -O2 -c src/third_party/miniz/miniz.c -o build/win/miniz.o
 	$(MAKE) BUILD=build/win CC=x86_64-w64-mingw32-gcc build/win/liblua.a
 	x86_64-w64-mingw32-g++ -std=c++20 -O2 -Isrc/emu -Isrc/mame -Isrc/board -Isrc/app -Isrc/third_party/miniz -Isrc/third_party/lua -I$(SDL2W)/include/SDL2 \
-	  src/app/main.cpp src/app/games.cpp src/app/romload.cpp src/app/netplay.cpp src/app/gl_present.cpp src/app/controls.cpp src/app/mods.cpp src/app/version.cpp src/app/paths.cpp src/app/news.cpp src/app/view.cpp src/app/png_read.cpp src/app/overlay.cpp src/app/ui/ui.cpp src/app/ui/gallery.cpp src/app/ui/lettering.cpp src/app/ui/art_view.cpp src/app/rom_art.cpp $(VERSION_DEFS) build/win/miniz.o build/win/libcore.a build/win/liblua.a \
+	  src/app/main.cpp src/app/games.cpp src/app/romload.cpp src/app/netplay.cpp src/app/gl_present.cpp src/app/controls.cpp src/app/mods.cpp src/app/version.cpp src/app/paths.cpp src/app/news.cpp src/app/view.cpp src/app/png_read.cpp src/app/overlay.cpp src/app/ui/ui.cpp src/app/ui/gallery.cpp src/app/ui/lettering.cpp src/app/ui/themes.cpp src/app/ui/art_view.cpp src/app/rom_art.cpp $(VERSION_DEFS) build/win/miniz.o build/win/libcore.a build/win/liblua.a \
 	  -L$(SDL2W)/lib -lmingw32 -lSDL2main -lSDL2 -mwindows -static -lwinmm -lsetupapi -loleaut32 -lole32 -limm32 -lversion -lgdi32 -luser32 -lshell32 -luuid -ladvapi32 -lcfgmgr32 -lws2_32 -lwinhttp -lwinpthread \
 	  -o $(WIN_OUT)/NBAJamRecomp.exe
 
@@ -94,7 +94,7 @@ APP_INC = -Isrc/emu -Isrc/mame -Isrc/board -Isrc/app -Isrc/third_party/miniz -Is
 $(BUILD)/miniz.o: src/third_party/miniz/miniz.c
 	$(CC) -O2 -c $< -o $@
 linux-app: $(BUILD)/libcore.a $(BUILD)/miniz.o $(BUILD)/liblua.a
-	$(CXX) $(CXXFLAGS) $(APP_INC) -I$(SDL2L)/include/SDL2 src/app/main.cpp src/app/games.cpp src/app/romload.cpp src/app/netplay.cpp src/app/gl_present.cpp src/app/controls.cpp src/app/mods.cpp src/app/version.cpp src/app/paths.cpp src/app/news.cpp src/app/view.cpp src/app/png_read.cpp src/app/overlay.cpp src/app/ui/ui.cpp src/app/ui/gallery.cpp src/app/ui/lettering.cpp src/app/ui/art_view.cpp src/app/rom_art.cpp $(VERSION_DEFS) \
+	$(CXX) $(CXXFLAGS) $(APP_INC) -I$(SDL2L)/include/SDL2 src/app/main.cpp src/app/games.cpp src/app/romload.cpp src/app/netplay.cpp src/app/gl_present.cpp src/app/controls.cpp src/app/mods.cpp src/app/version.cpp src/app/paths.cpp src/app/news.cpp src/app/view.cpp src/app/png_read.cpp src/app/overlay.cpp src/app/ui/ui.cpp src/app/ui/gallery.cpp src/app/ui/lettering.cpp src/app/ui/themes.cpp src/app/ui/art_view.cpp src/app/rom_art.cpp $(VERSION_DEFS) \
 	  $(BUILD)/miniz.o $(BUILD)/libcore.a $(BUILD)/liblua.a -L$(SDL2L)/lib -Wl,-Bstatic -lSDL2 -Wl,-Bdynamic -static-libstdc++ -static-libgcc -lm -ldl -lpthread -o $(BUILD)/NBAJamRecomp
 $(BUILD)/cattest: tools/headless/cattest.cpp src/app/games.cpp src/app/romload.cpp $(BUILD)/libcore.a $(BUILD)/miniz.o
 	$(CXX) $(CXXFLAGS) $(APP_INC) $< src/app/games.cpp src/app/romload.cpp $(BUILD)/miniz.o $(BUILD)/libcore.a -o $@

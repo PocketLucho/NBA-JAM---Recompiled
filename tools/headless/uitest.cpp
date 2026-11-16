@@ -11,8 +11,11 @@
 //   U1.4  the prompts follow the device used last
 //   U1.5  text that does not fit is shortened or scrolled, never longer than its space
 #include "ui/gallery.h"
+#include "ui/themes.h"
 #include "miniz.h"
 #include <cstdio>
+#include <cstdlib>
+#include <filesystem>
 #include <set>
 #include <string>
 #include <tuple>
@@ -425,6 +428,144 @@ int main(int argc, char **argv)
 			hot = hot || (y > 14 && r > 230 && gr < 140 && b < 60);
 		}
 		CHECK(warm && hot, "lettering: the gallery's title is drawn in the project lettering with the theme's gradient");
+	}
+
+	// ---------------- U2.3: themes ----------------
+	{
+		const std::vector<std::string> &ids = theme_ids();
+		CHECK(ids.size() == 5 && ids[0] == "neutral", "themes: neutral and one per game family are built in");
+		std::string bad;
+		for (auto &id : ids)
+		{
+			std::vector<std::string> problems;
+			theme_spec sp = parse_theme(id, builtin_theme(id), &problems);
+			for (auto &p : problems) bad += " " + p;
+			if (sp.name.empty() || sp.name == id) bad += " " + id + ": no name";
+		}
+		CHECK(bad.empty(), "themes: every built-in theme file reads without a problem" + bad);
+		CHECK(theme_id_for_game("nbajam") == "nbajam" && theme_id_for_game("nbajamte") == "te" && theme_id_for_game("nbajamse") == "te" &&
+		      theme_id_for_game("nbahangt") == "hangtime" && theme_id_for_game("nbamht") == "mht" && theme_id_for_game("pong") == "neutral",
+		      "themes: each game has its family's theme; T.E. and SE share one; an unknown game is neutral");
+		theme neutral;
+		theme_spec n = parse_theme("neutral", builtin_theme("neutral"));
+		CHECK(n.colours.bar == neutral.bar && n.colours.bg_top == neutral.bg_top && n.colours.title_bottom == neutral.title_bottom && n.colours.text == neutral.text,
+		      "themes: the neutral file holds the toolkit's default colours");
+
+		std::vector<std::string> problems;
+		theme_spec sp = parse_theme("x", "name = Test ; a comment\nbar = #102030\n\ntext = red\nnonsense\nwhat = 3\npanel_alpha = 300\nbackground = 400x254\nbackground_crop = 1 2 3\nlist_font = 9\n", &problems);
+		CHECK(sp.name == "Test" && sp.colours.bar == 0xff102030 && sp.bg_w == 400 && sp.bg_h == 254 && sp.list_font == 9, "themes: a file's lines are read, comments left out");
+		CHECK(problems.size() == 5 && sp.colours.text == neutral.text && sp.colours.panel_alpha == 255 && sp.crop[2] == 0,
+		      "themes: lines that make no sense are listed and skipped; those keys keep the neutral values (" + std::to_string(problems.size()) + " listed)");
+
+		// without ROM art a game family's theme is the neutral one, whole
+		theme_spec ht = parse_theme("hangtime", builtin_theme("hangtime"));
+		theme plain = make_theme(ht, nullptr);
+		rom_art::art_set none;
+		theme plain2 = make_theme(ht, &none);
+		CHECK(ht.colours.bar != neutral.bar && plain.bar == neutral.bar && plain.backdrop.empty() && !plain.title_font && !plain.list_font && plain2.bar == neutral.bar,
+		      "themes: without ROM art the neutral theme is used whole");
+
+		// cross-fade
+		theme a = neutral, b = ht.colours;
+		b.backdrop.assign(size_t(screen::kW) * screen::kH, 0xff204060);
+		theme m0 = mix_themes(a, b, 0.0f), m1 = mix_themes(a, b, 1.0f), mh = mix_themes(a, b, 0.5f);
+		auto red = [](uint32_t c) { return int((c >> 16) & 0xff); };
+		bool halfway = std::abs(red(mh.bar) - (red(a.bar) + red(b.bar)) / 2) <= 1 && mh.backdrop.size() == b.backdrop.size();
+		uint32_t top = mh.backdrop.empty() ? 0 : mh.backdrop[0];
+		halfway = halfway && std::abs(red(top) - (red(a.bg_top) + 0x20) / 2) <= 1;
+		CHECK(m0.bar == a.bar && m0.backdrop.empty() && m1.bar == b.bar && m1.backdrop == b.backdrop && halfway,
+		      "themes: the cross-fade starts at one theme, ends at the other and mixes colours and backgrounds between");
+
+		// a theme file in the data folder is read instead of the built-in one
+		if (!out.empty())
+		{
+			std::error_code ec;
+			std::filesystem::create_directories(out + "/themes", ec);
+			std::string path = out + "/themes/te.theme";
+			if (FILE *f = fopen(path.c_str(), "wb")) { fputs("name = Mine\nbar = #010203\n", f); fclose(f); }
+			theme_spec mine = load_theme_spec("te", out), stock = load_theme_spec("hangtime", out);
+			std::filesystem::remove(path, ec);
+			std::filesystem::remove(out + "/themes", ec);
+			CHECK(mine.name == "Mine" && mine.colours.bar == 0xff010203 && stock.name == "NBA Hangtime" && load_theme_spec("te", "").name == "NBA JAM Tournament Edition",
+			      "themes: themes/<id>.theme in the data folder replaces the built-in file; the others stay built in");
+		}
+
+		// the gallery's theme tab
+		std::vector<std::string> names;
+		for (auto &id : ids) names.push_back(parse_theme(id, builtin_theme(id)).name);
+		screen g = make_gallery(names);
+		CHECK(make_gallery().tabs.size() == 4 && g.tabs.size() == 5 && g.tabs[4].panels[0].items.size() == 6, "themes: the gallery has a tab with a button per theme");
+		g.cur_tab = 4; g.cur_panel = 0; g.fix_focus();
+		g.handle(ev(act::down));
+		result r = g.handle(ev(act::confirm));
+		CHECK(r.what == result::activated && r.id == g_theme0 + 1, "themes: pressing a theme's button reports which one");
+	}
+
+	// ---------------- U2.3 / U2.4: a theme with ROM art, and glyphs the ROM font lacks ----------------
+	{
+		// a hand-made stand-in for a font read from a ROM: A, B and 1, 9 rows high, white
+		// with a dark edge; it has no '#' and no '?'
+		auto f = std::make_shared<rom_art::font>();
+		f->cap_h = 9;
+		for (char c : { 'A', 'B', '1', 'a', 'b' })
+		{
+			rom_art::picture &p = f->glyph[static_cast<unsigned char>(c)];
+			p.w = 6; p.h = 9;
+			p.px.assign(54, 0);
+			for (int y = 0; y < 9; y++) for (int x = 0; x < 6; x++) p.px[size_t(y) * 6 + x] = (x == 0 || y == 0 || x == 5 || y == 8) ? 0xff202020 : (y < 5 ? 0xffffffff : 0xffc0c0ff);
+		}
+		ink k = ink_from(*f);
+		CHECK(k.outline == 0xff202020 && k.top == 0xffffffff && (k.bottom & 0xff) == 0xff && ((k.bottom >> 16) & 0xff) < 0xff,
+		      "missing glyphs: the colours of the fallback are taken from the game's font (outline, top, bottom)");
+		CHECK(text_w("AB", *f) == 13 && text_w("A B", *f) > text_w("AB", *f) && text_w("A#B", *f) > text_w("AB", *f) + 2 && text_w("", *f) == 0,
+		      "missing glyphs: a character the game's font lacks still takes its room");
+		canvas cv(120, 30);
+		std::fill(cv.px.begin(), cv.px.end(), 0xff123456);
+		draw_text(cv, 10, 10, "A#B", *f);
+		int w_a = 6, w_all = text_w("A#B", *f);
+		int own = 0, borrowed = 0, lit = 0, rows_top = 99, rows_bot = -1;
+		for (int y = 0; y < cv.h; y++) for (int x = 0; x < cv.w; x++)
+		{
+			uint32_t c = cv.px[size_t(y) * cv.w + x];
+			if (c == 0xff123456) continue;
+			if (x < 10 + w_a) own++;
+			else if (x < 10 + w_all - 6 - 1) { borrowed++; if (c != k.outline) { lit++; rows_top = std::min(rows_top, y); rows_bot = std::max(rows_bot, y); } }
+		}
+		CHECK(own == 54 && borrowed > 20 && lit > 10, "missing glyphs: the missing character is drawn from the project lettering between the game's letters");
+		CHECK(rows_top == 10 && rows_bot == 18, "missing glyphs: the borrowed character has the height of the game's capitals (rows " + std::to_string(rows_top) + " to " + std::to_string(rows_bot) + ")");
+		bool whole = true;
+		for (int c = 33; c < 127; c++)
+		{
+			canvas one(40, 30);
+			std::fill(one.px.begin(), one.px.end(), 0xff123456);
+			draw_text(one, 5, 5, std::string(1, char(c)), *f);
+			bool any = false;
+			for (uint32_t p : one.px) any = any || p != 0xff123456;
+			whole = whole && any && text_w(std::string(1, char(c)), *f) > 0;
+		}
+		CHECK(whole, "missing glyphs: every printable character shows something in a game's font");
+		canvas dimmed(120, 30);
+		std::fill(dimmed.px.begin(), dimmed.px.end(), 0xff123456);
+		draw_text(dimmed, 10, 10, "A", *f, 0xff808080);
+		CHECK(dimmed.px[size_t(12) * dimmed.w + 12] == 0xff808080, "missing glyphs: a tint dims the game's letters (a disabled row)");
+
+		// the gallery in a theme that has a background and the game's lettering
+		theme art = th;
+		art.backdrop.assign(size_t(screen::kW) * screen::kH, 0xff305070);
+		art.title_font = f; art.list_font = f; art.panel_alpha = 128;
+		screen s = make_gallery();
+		canvas plain(screen::kW, screen::kH), themed(screen::kW, screen::kH);
+		s.draw(plain, th, device::xbox, 0);
+		s.draw(themed, art, device::xbox, 0);
+		write_png(out, "gallery_8_rom_font_stand_in.png", themed);
+		rectf p0 = s.panel_rect(0);
+		uint32_t in_panel = themed.px[size_t(p0.y + p0.h - 4) * themed.w + size_t(p0.x + p0.w - 4)];
+		CHECK(themed.px[2 * themed.w + 2] == 0xff305070 && in_panel != th.panel && in_panel != 0xff305070, "themes: the background is painted behind the screen and shows through the panels");
+		// nothing spills: the gap between the two columns holds only background
+		rectf l = s.panel_rect(0), r2 = s.panel_rect(1);
+		bool clean = true;
+		for (int x = int(l.x + l.w); x < int(r2.x); x++) for (int y = screen::kTop; y < screen::kBottom; y++) clean = clean && themed.px[size_t(y) * themed.w + x] == 0xff305070;
+		CHECK(clean && themed.px != plain.px, "themes: in a game's lettering the rows still stay inside their panels");
 	}
 
 	printf("\n%d checks, %d failed\n", g_run, g_fail);

@@ -7,9 +7,11 @@
 
 namespace ui
 {
-enum gallery_id { g_play = 1, g_ask, g_toast, g_sound, g_music, g_shader, g_volume, g_delay, g_grid0 = 100, g_list0 = 200 };
+enum gallery_id { g_play = 1, g_ask, g_toast, g_sound, g_music, g_shader, g_volume, g_delay, g_grid0 = 100, g_list0 = 200, g_theme0 = 300 };
 
-screen make_gallery();
+// `themes`: names for the last tab, a button each (U2.3). Pressing one gives
+// result::activated with id g_theme0 + its index; the caller changes theme.
+screen make_gallery(const std::vector<std::string> &themes = {});
 // What the gallery does with a result: opens the dialog, shows toasts. Returns true when
 // the caller should leave the gallery (Back outside a dialog).
 bool gallery_react(screen &s, const result &r, unsigned now_ms);

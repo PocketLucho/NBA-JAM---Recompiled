@@ -11,7 +11,9 @@
 // character the lettering does not have is shown as '?'; has_glyph tells them apart.
 // Glyphs have their own widths, so text is measured in pixels, not characters.
 #pragma once
+#include "../rom_art.h"
 #include "canvas.h"
+#include <functional>
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -41,6 +43,21 @@ std::string fit_px(const std::string &s, int px, face f);
 std::string marquee_px(const std::string &s, int px, face f, unsigned now_ms);
 // Lines no wider than `px`, broken at spaces; at most max_lines, the last one shortened.
 std::vector<std::string> wrap_px(const std::string &s, int px, face f, int max_lines);
+
+// The same three with any way of measuring text (a game's own lettering, see below).
+using measure_fn = std::function<int(const std::string &)>;
+std::string fit_px(const std::string &s, int px, const measure_fn &width);
+std::string marquee_px(const std::string &s, int px, const measure_fn &width, unsigned now_ms);
+std::vector<std::string> wrap_px(const std::string &s, int px, const measure_fn &width, int max_lines);
+
+// ---------------------------------------------------------------- a game's own lettering
+// Text in a font read from the user's ROM (rom_art.h). A character that font lacks comes
+// from the project lettering instead, drawn at the font's height and in its colours
+// (roadmap U2.4), so a string is always shown whole. x, y: top left of the capitals.
+ink ink_from(const rom_art::font &f);                 // the font's own colours, top to bottom, and its outline
+int text_w(const std::string &s, const rom_art::font &f);
+// `tint` multiplies the font's colours: white leaves them, a grey dims them (a disabled row)
+void draw_text(canvas &cv, int x, int y, const std::string &s, const rom_art::font &f, uint32_t tint = 0xffffffff);
 
 // The whole character set in the three sizes, for the tests and for review.
 void draw_sheet(canvas &cv, const ink &title, const ink &text);

@@ -13,6 +13,8 @@
 #include "games.h"
 #include "rom_art.h"
 #include "ui/art_view.h"
+#include "ui/gallery.h"
+#include "ui/themes.h"
 #include "miniz.h"
 #include <cstdio>
 #include <cstring>
@@ -130,6 +132,30 @@ static int real_roms(const std::string &base, const std::string &out)
 			ui::draw_art_page(cv, th, g.title, s, p, ui::device::xbox);
 			write_png(out, std::string(g.id) + "_page" + std::to_string(p + 1) + ".png", cv);
 		}
+	}
+	// the gallery in each family's theme, with that game's art
+	for (const game_info &g : game_list())
+	{
+		roms r;
+		art_set s = cat.art_roms(g, r) ? read(r) : art_set();
+		ui::theme_spec sp = ui::load_theme_spec(ui::theme_id_for_game(g.id), "");
+		ui::theme t = ui::make_theme(sp, &s);
+		printf("%-9s theme %-9s background %s  title font %s  list font %s\n", g.id, sp.id.c_str(), t.backdrop.empty() ? "no " : "yes",
+		       t.title_font ? std::to_string(t.title_font->cap_h).c_str() : "project", t.list_font ? std::to_string(t.list_font->cap_h).c_str() : "project");
+		for (int tab = 0; tab < 2; tab++)
+		{
+			ui::screen scr = ui::make_gallery();
+			scr.title = g.title;
+			scr.cur_tab = tab * 2; scr.cur_panel = 0; scr.fix_focus();
+			canvas cv(ui::screen::kW, ui::screen::kH);
+			scr.draw(cv, t, ui::device::xbox, 0);
+			write_png(out, std::string(g.id) + "_theme" + std::to_string(tab + 1) + ".png", cv);
+		}
+		ui::theme half = ui::mix_themes(ui::theme(), t, 0.5f);
+		ui::screen scr = ui::make_gallery();
+		canvas cv(ui::screen::kW, ui::screen::kH);
+		scr.draw(cv, half, ui::device::xbox, 0);
+		write_png(out, std::string(g.id) + "_theme_halfway.png", cv);
 	}
 	printf("\n%d of %zu games gave ROM art\n", found, game_list().size());
 	return 0;
@@ -260,6 +286,36 @@ int main(int argc, char **argv)
 		ui::draw_picture(far, picture(), 10, 10);
 		CHECK(true, "test screen: a page number out of range and pictures over the edge are survived");
 		(void)blank;
+	}
+
+	// ---------------- U2.3: a theme made from ROM art ----------------
+	{
+		using namespace ui;
+		const std::string file = "name = Made up" + std::string(1, char(10)) + "bar = #40c0ff" + std::string(1, char(10)) + "background = 400x254" + std::string(1, char(10)) + "background_dim = 0" + std::string(1, char(10)) +
+		                         "title_font = 5" + std::string(1, char(10)) + "list_font = 5" + std::string(1, char(10));
+		theme_spec sp = parse_theme("made", file);
+		theme t = make_theme(sp, &s);
+		const size_t W = screen::kW, H = screen::kH;
+		// the 400 x 254 picture sits in the middle of the 400 x 300 screen: its row 0 is row 23
+		CHECK(t.bar == 0xff40c0ff && t.backdrop.size() == W * H && t.backdrop[23 * W + 0] == c3 && t.backdrop[23 * W + 1] == c1 && t.backdrop[(23 + 50) * W + 107] == c3,
+		      "themes: the ROM background of the size the file names is put behind the screen");
+		CHECK(t.backdrop[0] != 0xff000000 && t.backdrop[(H - 1) * W] != 0xff000000 && t.backdrop[150 * W + 200] == 0xff000000,
+		      "themes: above and below the picture the theme's gradient shows");
+		CHECK(t.title_font && t.list_font && t.title_font->cap_h == 5 && t.list_font->has('A'), "themes: the ROM fonts of the heights the file names are used for titles and rows");
+		theme_spec dim = parse_theme("made", file + "background_dim = 255" + std::string(1, char(10)) + "background_crop = 0 0 8 4" + std::string(1, char(10)));
+		theme td = make_theme(dim, &s);
+		CHECK(td.backdrop[0] == 0xff000000 && td.backdrop[299 * W + 399] == 0xff000000, "themes: a cropped part is repeated over the whole screen, and fully dimmed is black");
+		theme_spec tiled = parse_theme("made", file + "background_crop = 0 0 8 4" + std::string(1, char(10)));
+		theme tt = make_theme(tiled, &s);
+		CHECK(tt.backdrop[0] == c3 && tt.backdrop[8] == c3 && tt.backdrop[4 * W] == c3 && tt.backdrop[1] == c1 && tt.backdrop[5 * W + 9] == c2, "themes: the crop tiles from the top left corner");
+		theme_spec other = parse_theme("made", "bar = #40c0ff" + std::string(1, char(10)) + "background = 640x480" + std::string(1, char(10)) + "title_font = 61" + std::string(1, char(10)) + "list_font = 22" + std::string(1, char(10)));
+		theme to = make_theme(other, &s);
+		CHECK(to.bar == 0xff40c0ff && to.backdrop.empty() && !to.title_font && !to.list_font, "themes: a background or font the ROM does not have, or one too tall for its place, is left out; the colours stay");
+		screen g = make_gallery();
+		canvas cv(screen::kW, screen::kH);
+		g.draw(cv, t, device::xbox, 0);
+		write_png(out, "art_synthetic_theme.png", cv);
+		CHECK(cv.px[23 * W] == c3, "themes: the gallery is drawn over the ROM background");
 	}
 
 	printf("\n%d checks, %d failed\n", g_run, g_fail);
