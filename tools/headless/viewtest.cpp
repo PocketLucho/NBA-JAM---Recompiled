@@ -17,6 +17,11 @@
 //       Scanlines, CRT and curved CRT at 1080p, 1440p, 4K and 3440x1440 (W1.3): the CRT
 //       mask must be the same share of the screen at every size.
 //
+//   viewtest --gallery <out_dir>
+//       The widget gallery of the menu toolkit (U1.1) through the presenter at four window
+//       sizes, 1024x768 to 5120x1440: the menu keeps its shape and its text stays the same
+//       share of the screen height.
+//
 //   viewtest --fills <out_dir>
 //       The side fills on a 2560x1080 window (W1.5): black, blurred picture, an opaque image
 //       behind the game, and a border with a transparent opening over it (RetroArch style).
@@ -144,6 +149,7 @@ static int rects()
 
 #ifndef VIEWTEST_NO_GL
 #include "gl_present.h"
+#include "ui/gallery.h"
 #include "png_read.h"
 #include "miniz.h"
 #include <SDL.h>
@@ -331,6 +337,62 @@ static bool shoot(int W, int H, view_shape sh, view_scaling sc, int shader, cons
 }
 #endif
 
+#ifndef VIEWTEST_NO_GL
+// the menu toolkit's gallery at one window size
+static bool shoot_gallery(int W, int H, const std::string &out)
+{
+	SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 2);
+	SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 1);
+	SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
+	SDL_Window *win = SDL_CreateWindow("viewtest", 0, 0, W, H, SDL_WINDOW_OPENGL | SDL_WINDOW_BORDERLESS);
+	if (!win) { printf("window %dx%d: %s\n", W, H, SDL_GetError()); return false; }
+	gl_presenter gl;
+	std::string err;
+	if (!gl.init(win, err)) { printf("OpenGL: %s\n", err.c_str()); SDL_DestroyWindow(win); return false; }
+	int ww, wh;
+	gl.drawable_size(ww, wh);
+	std::string tag = "gallery " + std::to_string(W) + "x" + std::to_string(H);
+	ui::screen s = ui::make_gallery();
+	ui::theme th;
+	canvas cv(ui::screen::kW, ui::screen::kH);
+	s.draw(cv, th, ui::device::xbox, 0);
+	view_rect r = compute_view(ww, wh, cv.w, cv.h, view_shape::original, view_scaling::fit);
+	std::vector<uint8_t> rgb;
+	int cw = 0, ch = 0;
+	for (int i = 0; i < 2; i++) gl.present(cv.px.data(), cv.w, cv.h, 0, r, 0.6f, false);
+	bool got = gl.capture(rgb, cw, ch);
+	gl.swap();
+	check(got && cw == ww && ch == wh, tag + ": frame read back");
+	if (got)
+	{
+		check(r.h == wh || r.w == ww, tag + ": the menu fills the height (or the width)");
+		check(std::fabs(double(r.w) / r.h - 4.0 / 3.0) < 0.01, tag + ": the menu keeps its 4:3 shape");
+		// the title is drawn 16 canvas rows high in the title colour: its height on screen is
+		// the same share of the screen at every size (W1.4: text does not stay tiny at 4K)
+		int top = -1, bottom = -1;
+		for (int y = r.y; y < r.y + r.h * 7 / 100; y++)       // the title band: the top 7% of the menu
+		{
+			bool hit = false;
+			for (int x = r.x; x < r.x + r.w && !hit; x++) { const uint8_t *p = &rgb[(size_t(y) * cw + x) * 3]; hit = p[0] > 230 && p[1] > 100 && p[1] < 160 && p[2] < 80; }
+			if (hit) { if (top < 0) top = y; bottom = y; }
+		}
+		double share = top < 0 ? 0 : double(bottom - top + 1) / wh;
+		check(share > 13.0 / 300 && share < 17.0 / 300, tag + ": title is " + std::to_string(bottom - top + 1) + " px high, " + std::to_string(share * 100).substr(0, 4) + "% of the screen");
+		// a point of the canvas lands where the input layer will look for it
+		ui::rectf pr = s.panel_rect(0);
+		int px = r.x + int((pr.x + 2) * r.w / cv.w), py = r.y + int((pr.y + pr.h / 2) * r.h / cv.h);
+		const uint8_t *edge = &rgb[(size_t(py) * cw + r.x + int(pr.x * r.w / cv.w) + r.w / cv.w / 2) * 3];
+		check(edge[0] > 200 && edge[1] > 120, tag + ": the focused panel's edge is where the layout says");
+		(void)px;
+		if (!out.empty()) check(write_png(out, rgb, cw, ch), tag + ": PNG written");
+	}
+	printf("%-28s menu %d,%d %dx%d%s\n", tag.c_str(), r.x, r.y, r.w, r.h, out.empty() ? "" : ("  -> " + out).c_str());
+	gl.shutdown();
+	SDL_DestroyWindow(win);
+	return true;
+}
+#endif
+
 int main(int argc, char **argv)
 {
 	if (argc == 2 && !strcmp(argv[1], "--rects")) return rects();
@@ -352,6 +414,11 @@ int main(int argc, char **argv)
 				ok = shoot(z[0], z[1], view_shape::original, view_scaling::fit, shader,
 				           std::string(argv[2]) + "/" + std::to_string(z[0]) + "x" + std::to_string(z[1]) + "_shader" + std::to_string(shader) + ".png") && ok;
 	}
+	else if (argc == 3 && !strcmp(argv[1], "--gallery"))
+	{
+		static const int sz[][2] = { { 1024, 768 }, { 1920, 1080 }, { 3440, 1440 }, { 5120, 1440 } };
+		for (auto &z : sz) ok = shoot_gallery(z[0], z[1], std::string(argv[2]) + "/gallery_" + std::to_string(z[0]) + "x" + std::to_string(z[1]) + ".png") && ok;
+	}
 	else if (argc == 3 && !strcmp(argv[1], "--fills"))
 	{
 		static const char *names[4] = { "black", "blur", "image", "border" };
@@ -371,7 +438,7 @@ int main(int argc, char **argv)
 	}
 	else
 	{
-		printf("usage: viewtest --rects | --all <dir> | --shaders <dir> | --fills <dir> | <w> <h> <shape> <scaling> <shader> <out.png>\n");
+		printf("usage: viewtest --rects | --all <dir> | --shaders <dir> | --fills <dir> | --gallery <dir> | <w> <h> <shape> <scaling> <shader> <out.png>\n");
 		return 2;
 	}
 	SDL_Quit();

@@ -235,6 +235,8 @@ Opus. New files under `src/app/ui/`; `main.cpp` shrinks instead of growing.
 | U1.4 | **Button prompts:** the status line shows what each button does on the current screen, with glyphs that match the connected controller (Xbox, PlayStation, Nintendo, keyboard) and switch when the last-used device changes. | Screenshot per controller family |
 | U1.5 | **Strings:** every label goes through the Spanish/English table; text that does not fit is shortened or scrolled, never clipped mid-letter. | Both languages rendered on every screen |
 
+**Status:** U1.1 to U1.5 are written in `src/app/ui/`: widgets, the one navigation rule (at the top of `ui.h`), the unified input layer with hold-to-repeat, text prompts per device family, and text fitting. `tools/headless/uitest` (67 checks, in CI) includes the automated walk: every usable item of the gallery is reached by directions and tab buttons alone, focus never rests on a header or a disabled item, and Back is reported from every state. `viewtest --gallery` draws the gallery at four sizes. `NBAJamRecomp --ui-gallery` opens it in the program. Open: no real controller, mouse or touch screen has been used (scripted input only, keyboard by hand); prompts are words, not glyph pictures; no string table, since the program is English only for now (rule 4).
+
 **Gate:** advisor reviews the gallery and the navigation rule before any screen is rebuilt.
 
 ## Phase U2: lettering and themes
