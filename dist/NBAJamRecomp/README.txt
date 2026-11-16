@@ -1,11 +1,14 @@
 NBA JAM Recomp - Midway's NBA JAM saga recompiled from its source code
 =====================================================================
 Created by Pocket_lucho with Claude (Anthropic).
-Project: https://github.com/PocketLucho/NBA-JAM---Recompiled
+Downloads and news: https://github.com/richvam/NBA-JAMs-Recomp/releases
+Original project:   https://github.com/PocketLucho/NBA-JAM---Recompiled
 If you want to support me, go to https://buymeacoffee.com/pocket_lucho
 
 Run NBAJamRecomp.exe (64-bit Windows 10/11, no installation). A menu lets you
 pick the game (arrows + Enter, or a gamepad). Esc goes back to the menu.
+"News and updates" in the menu tells you when a newer version is published (it
+only tells you; nothing is downloaded) and can be switched off there.
 
 
 
@@ -131,7 +134,7 @@ HOW IT IS MADE
     ymfm, and the Midway T-Unit and Wolf Unit boards on a minimal framework.
   * Build: a TI GSPA/GSPLNK compatible assembler/linker written for this
     project (tools/gspasm) and Midway's original LOAD2.EXE run under emu2.
-    See README.md in the source code.
+    See docs/BUILDING.md in the source code.
 
 NBA JAM, NBA Hangtime and Midway are trademarks of their owners. Non-profit
 fan project, not affiliated with them.

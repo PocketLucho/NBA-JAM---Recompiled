@@ -35,6 +35,8 @@ Sections, in this order: **Added**, **Changed**, **Fixed**, **Online**, **Known 
 - The interface and the documentation are English only for now. The language option is gone
   from the main menu.
 - Downloads are on the Releases page; builds are no longer kept in the repository.
+- The README is rewritten for players: download, where the ROMs go, first run, controls,
+  online, mods and troubleshooting. Build instructions moved to `docs/BUILDING.md`.
 - The version is taken from the release tag instead of the build date.
 
 ### Fixed

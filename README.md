@@ -1,8 +1,8 @@
 # NBA JAM Recomp
 
-
-Midway's NBA JAM arcade saga, **rebuilt from its original source code** and played in one
-Windows application with a game picker, CRT shaders, widescreen modes and online play.
+Midway's NBA JAM arcade games, **rebuilt from their original source code**, in one program
+for Windows and Linux: a game picker, CRT shaders, remappable controllers, Lua mods and
+online play for up to four players.
 
 Created by **Pocket_lucho** with **Claude** (Anthropic).
 If you want to support me, go to https://buymeacoffee.com/pocket_lucho
@@ -15,138 +15,171 @@ If you want to support me, go to https://buymeacoffee.com/pocket_lucho
 | NBA Hangtime, L1.3 / L1.1 | Wolf Unit | runs from the ROMs |
 | NBA Maximum Hangtime, 1.3 | Wolf Unit | **built from source: program byte-identical** (1.03 from MAME also runs) |
 
-## Download
+**No game data is included.** Midway's code, graphics, sound and music are copyrighted, so
+neither this repository nor the downloads contain any of them. You bring your own files
+(see [Where the ROMs go](#2-where-the-roms-go)).
 
-Get the latest version from the **[Releases page](https://github.com/richvam/NBA-JAMs-Recomp/releases)**:
+Contents: [Download](#1-download) · [Where the ROMs go](#2-where-the-roms-go) ·
+[First run](#3-first-run) · [Controls](#4-controls) · [Online](#5-online) ·
+[Lua mods](#6-lua-mods) · [Troubleshooting](#7-troubleshooting) ·
+[Building it yourself](docs/BUILDING.md) · [What changed](CHANGELOG.md)
 
-* Windows 10/11 x64: `NBAJamRecomp-<version>-windows-x64.zip`
-* Linux x64: `NBAJamRecomp-<version>-linux-x64.tar.gz`
+## 1. Download
 
-Builds are made automatically for every version tag; none are kept in the repository.
+Get the latest version from the **[Releases page](https://github.com/richvam/NBA-JAMs-Recomp/releases)**.
 
-Unpack, copy your ROMs into `roms/` (see below) and run `NBAJamRecomp`.
+| System | File |
+|---|---|
+| Windows 10/11, 64-bit | `NBAJamRecomp-<version>-windows-x64.zip` |
+| Linux, 64-bit (x86-64) | `NBAJamRecomp-<version>-linux-x64.tar.gz` |
 
-## No game data is included
+Unpack it anywhere. There is nothing to install. Windows may show a SmartScreen warning
+because the program is not signed: choose "More info", then "Run anyway".
 
-Midway's code, graphics, sound and music are copyrighted, so neither this repository nor
-the releases contain any of them. Each user copies their own files into `roms/`:
+## 2. Where the ROMs go
 
-* MAME romsets: `nbajam.zip`, `nbajamte.zip`, `nbahangt.zip`, `nbamht.zip`
-* and/or the ZIPs of the public source repositories ("Code → Download ZIP"):
-  [historicalsource/nba-jam-tournament-edition](https://github.com/historicalsource/nba-jam-tournament-edition),
-  [Asure/nba-jam-tournament-edition-SE](https://github.com/Asure/nba-jam-tournament-edition-SE),
-  [historicalsource/nba-hangtime](https://github.com/historicalsource/nba-hangtime)
+Copy your own files into the `roms` folder next to the program. The program recognises
+every file by its contents (CRC32), whatever its name, inside zips and sub-folders too,
+so there is nothing to unpack or rename.
 
-The application scans `roms/` (sub-folders and ZIPs included), recognises every file by
-CRC32 and extracts what each game needs when it starts. See `dist/NBAJamRecomp/README.txt`
-for the per-game list. Games built from source with `tools/build_roms.sh` (below) go to
-`data/<game>/` and are used when the ROMs are not found.
+| Game | What to put in `roms` |
+|---|---|
+| NBA JAM (1993) | MAME romset `nbajam.zip` |
+| NBA JAM Tournament Edition | MAME romset `nbajamte.zip`, or the ZIP of the [historicalsource/nba-jam-tournament-edition](https://github.com/historicalsource/nba-jam-tournament-edition) repository (without `nbajamte.zip` it uses the Special Edition sound ROMs) |
+| NBA JAM T.E. Special Edition | the ZIP of the [Asure/nba-jam-tournament-edition-SE](https://github.com/Asure/nba-jam-tournament-edition-SE) repository |
+| NBA Hangtime | MAME romset `nbahangt.zip` (L1.3 or L1.1) |
+| NBA Maximum Hangtime | version 1.3: the ZIP of the [historicalsource/nba-hangtime](https://github.com/historicalsource/nba-hangtime) repository plus `nbahangt.zip` (graphics and sound); or version 1.03: MAME romset `nbamht.zip` |
 
-## Features
+Repository ZIPs are downloaded on GitHub with "Code", then "Download ZIP".
 
-* Game picker ordered by release date
-* OpenGL 2.1 / GLES 2 shaders: sharp, smooth, scanlines, CRT, curved CRT; integer
-  (pixel perfect) scaling; 4:3, 16:9, 16:10 or fill
-* Online play for up to 4 players: lockstep over UDP, with ROM fingerprint and
-  desync detection
-* Keyboard (4 players) and gamepads with remappable controls: per-player controller profiles for all games or per game, one-button shortcuts for multi-button moves (shove, turbo shot, custom), importable/exportable as `.ini` files (main menu -> Controls)
-* Per-game NVRAM, screenshots (F12)
-* Lua mods: `.lua` scripts in `mods/`, switched on from the **Lua mods** menu for all
-  games or for chosen ones (see [Lua mods](#lua-mods))
+## 3. First run
 
-## Lua mods
+1. Run `NBAJamRecomp` (`NBAJamRecomp.exe` on Windows).
+2. Pick a game with the arrow keys and Enter, or with a controller. A game shown in grey
+   is missing files; selecting it tells you which.
+3. Press `5` to insert a coin and `1` to start (Back and Start on a controller). `F1`
+   shows the keys at any time, and `Esc` returns to the menu.
 
-Scripts in `mods/` next to the program show up in the main menu under **Lua mods**.
-Left/Right turns a mod on or off; Enter opens its page, where *Apply to* switches between
-**All games** and **Selected games** (one checkbox per game) and the mod's options are set.
-Choices are saved in `mods.ini`. Mods run in a sandbox (no file or OS access) with Lua 5.4.
+The downloads are **portable**: settings, saves, screenshots, controller profiles, mods and
+ROMs all stay in the unpacked folder, because it contains a file called `portable.txt`.
+Without that file the program keeps them in your user folder instead
+(`%APPDATA%\NBAJamRecomp` on Windows, `~/.local/share/NBAJamRecomp` on Linux). The About
+screen shows which folder is in use.
+
+Updating: unpack the new version over the old folder, or into a new one and copy `roms`,
+`saves` and `nbajam_recomp.ini` across. The main menu tells you when a newer version has
+been published (**News and updates**; it only tells you, nothing is downloaded, and it can
+be switched off there).
+
+## 4. Controls
+
+Keyboard:
+
+| | Move | Shoot | Pass | Turbo | Start | Coin |
+|---|---|---|---|---|---|---|
+| Player 1 | arrow keys | Z | X | C | 1 | 5 |
+| Player 2 | W S A D | F | G | V | 2 | 6 |
+| Player 3 | numpad 8 2 4 6 | numpad 0 | numpad . | numpad Enter | 3 | 7 |
+| Player 4 | I K J L | H | ; | U | 4 | 8 |
+
+Controllers: each pad is one player. By default A shoots, B passes, X or a shoulder button
+is turbo, Start starts and Back inserts a coin.
+
+To change them, open **Controls** in the main menu. Each player has a profile for all
+games, and any game can be given its own. One button can hold several arcade buttons at
+once (shove, turbo shot and two shortcuts of your choice). Profiles can be exported and
+imported as `.ini` files.
+
+Other keys:
+
+| Key | Does |
+|---|---|
+| F1 | on-screen help |
+| F2 | test switch (the game's service menu) |
+| F3 | reset the game |
+| F4 | picture: sharp, smooth, scanlines, CRT, curved CRT |
+| F5 | whole-number scaling on or off |
+| F6 | scanline strength |
+| F7 | shape: 4:3, 16:9, 16:10 or fill the window (the wide ones stretch the picture) |
+| F11 or Alt+Enter | fullscreen |
+| F12 or Print Screen | screenshot, saved in `screenshots` |
+| P | pause |
+| - and + | volume |
+| 9 | service credit |
+| Esc | back to the menu |
+
+Keyboard keys are changed in `nbajam_recomp.ini`.
+
+## 5. Online
+
+Up to four players, each on their own computer.
+
+1. Highlight the game in the menu and press `N` (or Y on a controller).
+2. One player chooses **Host a game**, waits in the lobby and presses Enter to start. They
+   are player 1.
+3. The others choose **Join**, type the host's IP address (Ctrl+V pastes) and press Enter.
+   They become players 2, 3 and 4 in the order they arrive.
+
+Good to know:
+
+* Everybody plays with their own player 1 keys or first controller.
+* Everybody needs the same ROMs and the same version of the program; you are told if they differ.
+* Over the internet the host forwards UDP port 7845 on their router, or everybody joins a
+  virtual network (Tailscale, ZeroTier, Radmin VPN).
+* Input delay: 3 to 4 on a home network, 5 to 7 over the internet. If the game keeps
+  stopping with "Waiting for the network...", raise it.
+* If "DESYNC" appears, leave with Esc and host the game again.
+* Lua mods: mods that only change the game when it loads work online if every player has
+  the same ones switched on with the same options. A mod that writes memory or runs every
+  frame stops an online game from starting, and the program names it. Of the two included
+  mods, "Quarter length" has to be off online.
+
+## 6. Lua mods
+
+Scripts in the `mods` folder appear in the main menu under **Lua mods**. Left/Right turns a
+mod on or off. Enter opens its page, where you choose the games it applies to and set its
+options. Your choices are saved in `mods.ini`. Mods cannot touch your files or your system.
 
 Included:
 
 | Script | What it does |
 |---|---|
-| `quarter_length.lua` | quarter (and overtime) length from 0:30 to 12:00; the original is 3:00. The scoreboard has one minutes digit, so above 9:00 it reads 9 until 9 minutes are left (the time played is exact) |
-| `no_select_timer.lua` | removes the countdown on the team select screen (option: the initials entry one too) |
+| `quarter_length.lua` | Quarter and overtime length from 0:30 to 12:00 (the original is 3:00). The scoreboard has one minutes digit, so above 9:00 it shows 9 until nine minutes are left. |
+| `no_select_timer.lua` | Removes the countdown on the team select screen, and optionally on initials entry. |
 
-Both find the code they change by its instruction pattern, so they work on any revision
-that shares it. They were checked on T.E. rev 4.0, T.E. SE rev 5.02, Hangtime L1.3 and Maximum Hangtime 1.3
-with `build/linux/modtest` (`make build/linux/modtest`): with `quarter_length` set to 1:30
-every quarter starts at 1:30 (12:00 checked on T.E.), and with `no_select_timer` the select
-screen waits for the players instead of picking for them. Hangtime's shorter countdowns
-("winner stays", trivia) are left alone. NBA JAM (1993) has no public source and is
-untested; if the pattern is not in its ROM the mod says so on screen and changes nothing.
+Both were checked on T.E. rev 4.0, T.E. Special Edition rev 5.02, Hangtime and Maximum
+Hangtime. If a mod cannot find what it needs in a game, it says so on screen and changes
+nothing. To write your own, see [`mods/README.txt`](dist/NBAJamRecomp/mods/README.txt).
 
-Online games: both players need the same mods, since they change the program and are
-part of the ROM fingerprint. Writing your own: see `dist/NBAJamRecomp/mods/README.txt`.
+## 7. Troubleshooting
 
-## Repository layout
-
-| Path | Contents |
+| Problem | What to do |
 |---|---|
-| `src/emu` | minimal MAME-compatible device framework |
-| `src/mame` | unmodified MAME CPU cores (TMS34010, M6809, ADSP-2105), OKI ADPCM, ymfm |
-| `src/board` | Midway T-Unit (DMA blitter, protection, Williams ADPCM sound) and Wolf Unit (security PIC, DCS) |
-| `src/app` | SDL2 application: menu, ROM loading, video, shaders, netplay, Lua mods |
-| `src/third_party/lua` | Lua 5.4.6, unmodified |
-| `tools/gspasm` | assembler/linker compatible with TI GSPA/GSPLNK, written for this project |
-| `tools/build_roms.sh` | rebuilds the games from the source repositories |
-| `tools/lod_palbpp.py`, `fix_narrow.py`, `fix_pwrd.py` | make the 1995 LOAD2 output match the 1994 tools (see below) |
-| `tools/irw2gfx*.py`, `imgfile.py` | LOAD2 image file helpers |
-| `tools/emu2-ems.patch` | EMS support for [emu2](https://github.com/dmsc/emu2), needed by LOAD2.EXE |
-| `tools/headless` | command-line test programs |
-| `dist/NBAJamRecomp` | release folder (docs; the .exe is built here) |
+| A game is grey | Select it: the program says which files are missing. Check the table in [Where the ROMs go](#2-where-the-roms-go). |
+| "CMOS invalid, factory settings restored" the first time | Normal on a game's first start. Press any button. |
+| No picture, or a black window | Your graphics driver may lack OpenGL 2.1. Set `opengl=0` in `nbajam_recomp.ini` for the basic mode (no shaders). |
+| The picture is too wide | Press F7 until it says 4:3. The wide modes stretch the picture. |
+| Borders on every side | With whole-number scaling (F5) the picture only grows in whole steps. Press F5 to fill the height. |
+| A controller does nothing | Open **Controls**: the top line shows the pad the program sees. Select an action and press the button you want. |
+| I cannot find my saves or settings | Open **About**: the "Data" line shows the folder. |
+| Online: "your ROMs (or Lua mods) are not the same as the host's" | Use the same ROM files and switch the same mods on, with the same options. |
+| Online: the others cannot join | The host's UDP port 7845 must be reachable: forward it on the router or use a virtual network. |
+| The menu never mentions new versions | News needs an internet connection and "News and updates: on". With no connection it stays quiet. |
 
-## Building the application
+Something else? Open an issue on this repository and say which game and which version
+(About shows it).
 
-Windows build (cross-compiled from Linux with [llvm-mingw](https://github.com/mstorsjo/llvm-mingw)
-and SDL2 2.30 for mingw):
-
-```sh
-make BUILD=build/win CXX=x86_64-w64-mingw32-g++ build/win/libcore.a
-make win SDL2W=/path/to/SDL2-2.30.x/x86_64-w64-mingw32     # -> dist/NBAJamRecomp/NBAJamRecomp.exe
-```
-
-Linux build: `make linux-app SDL2L=/path/to/static-sdl2` → `build/linux/NBAJamRecomp` (x86-64, glibc 2.38+; SDL2 and libstdc++ linked statically).
-
-## Building the games from source
-
-Needs bash, python3 and emu2 with `tools/emu2-ems.patch` (Linux, or WSL on Windows):
-
-```sh
-git clone https://github.com/historicalsource/nba-jam-tournament-edition repos/nba-jam-tournament-edition
-git clone https://github.com/Asure/nba-jam-tournament-edition-SE        repos/nba-jam-tournament-edition-SE
-git clone https://github.com/historicalsource/nba-hangtime              repos/nba-hangtime
-tools/build_roms.sh repos /path/to/emu2 dist/NBAJamRecomp/data
-```
-
-The script assembles and links every game with `gspasm`, runs Midway's `LOAD2.EXE` to
-pack the art, compares the results with the original ROMs and writes `data/<game>/`.
-
-### What it took to get identical ROMs
-
-* **gspasm** reproduces GSPA's quirks: TI operator precedence (`| ^` like `+ -`, `& << >>`
-  like `*`), surplus macro arguments folded into the last parameter, and GSPLNK's
-  `0x0000FFFF` hole filling.
-* **T.E. art packing** - the T.E. was packed in 1994 by an older LOAD2 that gave every
-  image the bits per pixel of its palette, while the 1995 LOAD2 in the sources packs to the
-  minimum. `lod_palbpp.py` adds `PPP> n` lines to the LOD files (otherwise name plates
-  are noise).
-* **Narrow images** - the 1995 LOAD2 pads images narrower than 3 pixels; `fix_narrow.py`
-  removes the padding column and moves all later image addresses back.
-* **Second animation point** - the 1995 LOAD2 writes `-1` to the `PWRD1..3` header fields
-  (where the ball is held); `fix_pwrd.py` takes them from the `.IMG` files. Without it the
-  ball floats and never bounces.
-
-## Licence
+## Licence and credits
 
 The code of this project is released under the BSD 3-Clause licence (see `LICENSE`).
 Third-party code: MAME CPU cores and ymfm (BSD 3-Clause), miniz (MIT / Unlicense),
-font8x8 (public domain), SDL2 (zlib), Lua 5.4 (MIT). NBA JAM, NBA Hangtime and Midway are trademarks of
-their owners; this is a non-profit fan project not affiliated with them.
+font8x8 (public domain), SDL2 (zlib), Lua 5.4 (MIT).
 
-## Credits
-
-* Midway Games: the original games and the source code released by
+* Midway Games: the original games, and the source code released by
   [historicalsource](https://github.com/historicalsource)
 * [Asure](https://github.com/Asure): NBA JAM T.E. Special Edition and its sources
 * The MAME team, Aaron Giles (ymfm), dmsc (emu2)
+* The original project: [PocketLucho/NBA-JAM---Recompiled](https://github.com/PocketLucho/NBA-JAM---Recompiled)
+
+NBA JAM, NBA Hangtime and Midway are trademarks of their owners. This is a non-profit fan
+project, not affiliated with them.
