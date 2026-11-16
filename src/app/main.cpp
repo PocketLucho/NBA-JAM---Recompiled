@@ -2,6 +2,7 @@
 // Game picker at start-up, SDL2 video/audio/input, per-game NVRAM.
 #include "version.h"
 #include "paths.h"
+#include "news.h"
 #include "games.h"
 #include "font.h"
 #include "miniz.h"
@@ -48,6 +49,7 @@ struct config
 	int aspect = 0;               // 0 = 4:3, 1 = 16:9 (stretched), 2 = 16:10, 3 = fill window
 	bool use_opengl = true;
 	float volume = 0.8f;
+	bool news = true;             // ask the Releases feed for the latest version at start (R2.3)
 	int net_port = 7845;
 	int net_delay = 4;
 	std::string net_host;
@@ -79,12 +81,12 @@ static SDL_Scancode *key_slot(key_map &k, int i)
 static void save_config(const std::string &path, config &c)
 {
 	std::ofstream f(path);
-	f << "# NBA JAM Recomp - configuration\n[video]\nscale=" << c.scale << "\nfullscreen=" << c.fullscreen
-	  << "\n# shader: 0 nitido, 1 suavizado, 2 scanlines, 3 CRT, 4 CRT curvo\nshader=" << c.shader
-	  << "\n# aspect: 0 = 4:3 original, 1 = 16:9 panoramico, 2 = 16:10, 3 = llenar ventana\naspect=" << c.aspect << "\ninteger_scale=" << c.integer_scale << "\nscanline_strength=" << c.scan_strength
-	  << "\n# opengl=0 usa el renderizador SDL basico (sin shaders)\nopengl=" << c.use_opengl
+	f << "# NBA JAM Recomp - configuration\n[general]\n# news=1 asks github.com once at start for the latest release (only to tell you; nothing is downloaded)\nnews=" << c.news << "\n\n[video]\nscale=" << c.scale << "\nfullscreen=" << c.fullscreen
+	  << "\n# shader: 0 sharp, 1 smooth, 2 scanlines, 3 CRT, 4 curved CRT\nshader=" << c.shader
+	  << "\n# aspect: 0 = 4:3 original, 1 = 16:9 widescreen, 2 = 16:10, 3 = fill the window\naspect=" << c.aspect << "\ninteger_scale=" << c.integer_scale << "\nscanline_strength=" << c.scan_strength
+	  << "\n# opengl=0 uses the basic SDL renderer (no shaders)\nopengl=" << c.use_opengl
 	  << "\n\n[audio]\nvolume=" << c.volume
-	  << "\n\n[red]\nport=" << c.net_port << "\ninput_delay=" << c.net_delay << "\nlast_host=" << c.net_host
+	  << "\n\n[network]\nport=" << c.net_port << "\ninput_delay=" << c.net_delay << "\nlast_host=" << c.net_host
 	  << "\n\n[dips]\nfree_play=" << c.dips.free_play << "\nfour_players=" << c.dips.four_players
 	  << "\ncountry=" << c.dips.country << "\nvideo_clips=" << c.dips.video_clips
 	  << "\n\n[controllers]\n# profile of each player's pad (files in controller_profiles/, edit them in the Controls menu)\n";
@@ -94,7 +96,7 @@ static void save_config(const std::string &path, config &c)
 		for (int p = 0; p < 4; p++)
 			if (!g.second[size_t(p)].empty()) f << g.first << ".p" << (p + 1) << "_profile=" << g.second[size_t(p)] << "\n";
 	f << "\n[keys]\n"
-	  << "# nombres de tecla SDL (https://wiki.libsdl.org/SDL2/SDL_Scancode)\n";
+	  << "# SDL key names (https://wiki.libsdl.org/SDL2/SDL_Scancode)\n";
 	for (int p = 0; p < 4; p++)
 		for (int i = 0; i < 9; i++)
 			f << "p" << (p + 1) << "_" << kNames[i] << "=" << SDL_GetScancodeName(*key_slot(c.keys[p], i)) << "\n";
@@ -113,6 +115,7 @@ static void load_config(const std::string &path, config &c)
 		if (eq == std::string::npos) continue;
 		std::string k = trim(line.substr(0, eq)), v = trim(line.substr(eq + 1));
 		if (k == "language") continue;       // from older versions: the program is English only for now
+		else if (k == "news") c.news = atoi(v.c_str()) != 0;
 		else if (k == "scale") c.scale = std::clamp(atoi(v.c_str()), 1, 8);
 		else if (k == "fullscreen") c.fullscreen = atoi(v.c_str()) != 0;
 		else if (k == "smooth") c.smooth = atoi(v.c_str()) != 0;
@@ -228,7 +231,7 @@ class app
 public:
 	int run();
 private:
-	enum class screen { menu, net_menu, net_lobby, game, about, mods, mod_detail, controls };
+	enum class screen { menu, net_menu, net_lobby, game, about, mods, mod_detail, controls, news };
 
 	void open_window();
 	void present(const u32 *pixels, int w, int h, bool game);
@@ -256,6 +259,13 @@ private:
 
 	std::string m_base, m_cfgpath;      // m_base = the user's data folder (paths.h)
 	app_paths m_paths;
+	// release news (R2.3)
+	news_feed m_news;
+	news_item m_news_item;          // latest published release, once known
+	bool m_news_new = false;        // ...and it is newer than this program
+	int m_news_scroll = 0;
+	void poll_news();
+	void news_frame();
 	void choose_data_folder();
 	config m_cfg;
 	SDL_Window *m_win = nullptr;
@@ -710,8 +720,9 @@ void app::menu_frame()
 {
 	const auto &list = game_list();
 	int ng = int(list.size());
-	int n = ng + 3;                       // + Lua mods, controls, about
-	const int i_mods = ng, i_controls = ng + 1, i_about = ng + 2;
+	int n = ng + 4;                       // + Lua mods, news, controls, about
+	const int i_mods = ng, i_news = ng + 1, i_controls = ng + 2, i_about = ng + 3;
+	poll_news();
 	if (m_menu_up) m_sel = (m_sel + n - 1) % n;
 	if (m_menu_down) m_sel = (m_sel + 1) % n;
 	if (m_menu_back) { m_quit = true; return; }
@@ -723,8 +734,15 @@ void app::menu_frame()
 		m_screen = screen::mods;
 		return;
 	}
-	if (m_menu_ok)
+	if (m_sel == i_news && (m_menu_left || m_menu_right))
 	{
+		m_cfg.news = !m_cfg.news;
+		save_config(m_cfgpath, m_cfg);
+		if (m_cfg.news) m_news.start();     // asks once per run; does nothing if it already did
+	}
+	else if (m_menu_ok)
+	{
+		if (m_sel == i_news) { m_screen = screen::news; m_news_scroll = 0; return; }
 		if (m_sel == i_controls) { m_screen = screen::controls; m_ctl_sel = 0; return; }
 		if (m_sel == i_about) { m_screen = screen::about; return; }
 		if (m_avail[size_t(m_sel)]) { if (start_game(m_sel)) return; }
@@ -760,6 +778,12 @@ void app::menu_frame()
 		cv.text(20, y, std::string("Lua mods") + "  (" + std::to_string(on) + "/" + std::to_string(m_mods.mods().size()) + " on)",
 		        sel ? 0xffffffff : 0xffc8d8ff);
 		y += 14;
+		sel = m_sel == i_news;
+		if (sel) cv.blend(12, y - 3, cv.w - 24, 14, 0xffffa020, 90);
+		bool fresh = m_cfg.news && m_news_new;
+		cv.text(20, y, std::string("News and updates: ") + (!m_cfg.news ? "off" : fresh ? "NEW VERSION" : "on"), fresh ? 0xffffe040 : sel ? 0xffffffff : 0xffc8d8ff);
+		if (sel) cv.text(cv.w - 36, y, "< >", 0xffffffff);
+		y += 14;
 		sel = m_sel == i_controls;
 		if (sel) cv.blend(12, y - 3, cv.w - 24, 14, 0xffffa020, 90);
 		cv.text(20, y, "Controls (pads and profiles)", sel ? 0xffffffff : 0xffc8d8ff);
@@ -768,8 +792,17 @@ void app::menu_frame()
 		if (sel) cv.blend(12, y - 3, cv.w - 24, 14, 0xffffa020, 90);
 		cv.text(20, y, "About NBA JAM Recomp", sel ? 0xffffffff : 0xffc8d8ff);
 	}
-	std::string ver = std::string("v") + app_version();
-	cv.text(cv.w - 8 - cv.text_w(ver), cv.h - 33, ver, 0xff8080a0);
+	if (m_cfg.news && m_news_new)
+	{
+		// the notice takes the place of the version label; details are on the News screen
+		std::string note = "New version available: " + m_news_item.tag + "  (see News)";
+		cv.text(cv.w - 8 - cv.text_w(note), cv.h - 33, note, 0xffffe040);
+	}
+	else
+	{
+		std::string ver = std::string("v") + app_version();
+		cv.text(cv.w - 8 - cv.text_w(ver), cv.h - 33, ver, 0xff8080a0);
+	}
 	cv.text(8, cv.h - 21, "Enter/A: play   N/Y: online game", 0xffb0b0b0);
 	cv.text(8, cv.h - 11, "Esc: quit  F4: video  F11: fullscreen", 0xffb0b0b0);
 	if (!m_message.empty() && SDL_GetTicks() < m_message_until) menu_message(cv, m_message);
@@ -920,6 +953,80 @@ void app::mod_detail_frame()
 	SDL_Delay(16);
 }
 
+void app::poll_news()
+{
+	news_item n;
+	if (m_news.poll(n))
+	{
+		m_news_item = n;
+		m_news_new = version_is_newer(n.tag, app_version());
+		SDL_Log("latest release: %s%s", n.tag.c_str(), m_news_new ? " (newer than this program)" : "");
+	}
+}
+
+// News: the notes of the latest published release, and whether it is newer than this
+// program. It only informs; nothing is downloaded.
+void app::news_frame()
+{
+	poll_news();
+	if (m_menu_back || m_menu_ok) { m_screen = screen::menu; return; }
+	canvas cv(400, 300);
+	draw_background(cv);
+	cv.text(cv.w / 2 - cv.text_w("NEWS", 2) / 2, 8, "NEWS", 0xffff8020, 2);
+	const int cols = (cv.w - 24) / 8, top = 58, rows = (cv.h - 26 - top) / 10;
+	int y = 30;
+	if (!m_cfg.news)
+	{
+		cv.text_wrap(12, y, "News is switched off. Turn it on with Left/Right on the main menu to see the latest release here.", 0xffd8e0ff);
+	}
+	else if (!m_news_item.ok)
+	{
+		cv.text_wrap(12, y, "No news. Either there is no connection, or no version has been published yet.", 0xffd8e0ff);
+	}
+	else
+	{
+		cv.text(12, y, (m_news_item.name + (m_news_item.date.empty() ? "" : "  " + m_news_item.date)).substr(0, size_t(cols)), 0xffffe080);
+		y += 12;
+		if (m_news_new) cv.text(12, y, ("NEW VERSION - you have " + std::string(app_version())).substr(0, size_t(cols)), 0xffffe040);
+		else cv.text(12, y, ("You have " + std::string(app_version()) + ": up to date").substr(0, size_t(cols)), 0xff80ff80);
+		// wrap the notes to the screen width
+		std::vector<std::string> lines;
+		for (std::string l : news_plain_lines(m_news_item.body))
+		{
+			if (l.empty()) { lines.push_back(""); continue; }
+			bool item = l.rfind("- ", 0) == 0;
+			while (int(l.size()) > cols)
+			{
+				size_t cut = l.rfind(' ', size_t(cols));
+				if (cut == std::string::npos || cut < 8) cut = size_t(cols);
+				lines.push_back(l.substr(0, cut));
+				l = (item ? "  " : "") + l.substr(l[cut] == ' ' ? cut + 1 : cut);
+			}
+			lines.push_back(l);
+		}
+		int max_scroll = std::max(0, int(lines.size()) - rows);
+		if (m_menu_down) m_news_scroll++;
+		if (m_menu_up) m_news_scroll--;
+		m_news_scroll = std::clamp(m_news_scroll, 0, max_scroll);
+		for (int i = 0; i < rows && i + m_news_scroll < int(lines.size()); i++)
+		{
+			const std::string &l = lines[size_t(i + m_news_scroll)];
+			bool head = !l.empty() && l == [&] { std::string u = l; for (char &c : u) c = char(toupper(static_cast<unsigned char>(c))); return u; }() && l[0] != '-' && l[0] != ' ';
+			cv.text(12, top + i * 10, l, head ? 0xff80ff80 : 0xffd8e0ff);
+		}
+		if (m_news_scroll > 0) cv.text(cv.w - 16, top, "^", 0xffffffff);
+		if (m_news_scroll < max_scroll) cv.text(cv.w - 16, top + (rows - 1) * 10, "v", 0xffffffff);
+		// the Releases page, without "https://" and the tag part, so that it fits on one line
+		std::string page = m_news_item.url;
+		if (page.find("://") != std::string::npos) page = page.substr(page.find("://") + 3);
+		if (page.find("/tag/") != std::string::npos) page = page.substr(0, page.find("/tag/"));
+		cv.text(8, cv.h - 21, page.substr(0, size_t(cols + 2)), 0xffffc040);
+	}
+	cv.text(8, cv.h - 11, "Up/Down: scroll   Enter / Esc: back", 0xffb0b0b0);
+	present(cv.px.data(), cv.w, cv.h, false);
+	SDL_Delay(16);
+}
+
 void app::about_frame()
 {
 	if (m_menu_back || m_menu_ok) { m_screen = screen::menu; return; }
@@ -935,10 +1042,13 @@ void app::about_frame()
 		// where the user's files are: the question people ask after installing
 		std::string where = std::string(m_paths.portable ? "Data (portable): " : "Data: ") + m_base;
 		y = cv.text_wrap(12, y, where, 0xffa0a0c0);
-		y += 4;
+		poll_news();
+		if (m_cfg.news && m_news_item.ok)
+			y = cv.text_wrap(12, y, "Latest release: " + m_news_item.tag + (m_news_new ? "  (new - see News)" : "  (you are up to date)"), m_news_new ? 0xffffe040 : 0xff80ff80);
+		y += 3;
 	}
 	auto line = [&](const std::string &s, u32 c = 0xffd8e0ff) { y = cv.text_wrap(12, y, s, c); };
-	auto gap = [&]() { y += 4; };
+	auto gap = [&]() { y += 3; };
 	line("Created by Pocket_lucho with Claude (Anthropic)", 0xffffe080);
 	gap();
 	line("A recompilation of Midway's NBA JAM saga from the original source code that was made public.");
@@ -952,6 +1062,7 @@ void app::about_frame()
 	gap();
 	line("Sources: github.com/historicalsource and Asure", 0xffb0b0b0);
 	line("github.com/PocketLucho/NBA-JAM---Recompiled", 0xffb0b0b0);
+	line("Releases: github.com/richvam/NBA-JAMs-Recomp", 0xffb0b0b0);
 	gap();
 	line("If you want to support me, go to", 0xffffc040);
 	line("https://buymeacoffee.com/pocket_lucho", 0xffffc040);
@@ -1480,6 +1591,7 @@ int app::run()
 	choose_data_folder();
 	m_cfgpath = path_join(m_base, "nbajam_recomp.ini");
 	load_config(m_cfgpath, m_cfg);
+	if (m_cfg.news) m_news.start();          // background; the menu never waits for it
 	m_cat = std::make_unique<game_catalog>(m_base);
 	m_mods.scan(path_join(m_base, "mods"), path_join(m_base, "mods.ini"));
 	m_profiles.init(m_base);
@@ -1510,6 +1622,7 @@ int app::run()
 			case screen::net_menu: net_menu_frame(); next = clock::now(); continue;
 			case screen::net_lobby: net_lobby_frame(); next = clock::now(); continue;
 			case screen::about: about_frame(); next = clock::now(); continue;
+			case screen::news: news_frame(); next = clock::now(); continue;
 			case screen::mods: mods_frame(); next = clock::now(); continue;
 			case screen::mod_detail: mod_detail_frame(); next = clock::now(); continue;
 			case screen::controls: controls_frame(); next = clock::now(); continue;

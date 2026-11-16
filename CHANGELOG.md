@@ -26,6 +26,10 @@ Sections, in this order: **Added**, **Changed**, **Fixed**, **Online**, **Known 
 - This changelog.
 - Release pages are written from this changelog: what changed, which download is for which
   system, first-run steps, and whether the version plays online with the previous one.
+- News: the main menu tells you when a newer version has been published and the News screen
+  shows its release notes. It only informs you; nothing is downloaded or installed. Turn it
+  off with Left/Right on "News and updates" or `news=0` in `nbajam_recomp.ini`.
+- About shows the latest release and where to get it.
 
 ### Changed
 - The interface and the documentation are English only for now. The language option is gone
