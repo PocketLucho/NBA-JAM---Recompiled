@@ -85,7 +85,7 @@ static void save_config(const std::string &path, config &c)
 	std::ofstream f(path);
 	f << "# NBA JAM Recomp - configuration\n[general]\n# news=1 asks github.com once at start for the latest release (only to tell you; nothing is downloaded)\nnews=" << c.news << "\n\n[video]\n# scale: size of the window in multiples of 400x300; 0 = chosen from the screen size\nscale=" << c.scale << "\nfullscreen=" << c.fullscreen
 	  << "\n# shader: 0 sharp, 1 smooth, 2 scanlines, 3 CRT, 4 curved CRT\nshader=" << c.shader
-	  << "\n# view: original (4:3), widescreen (more court on games that support it, otherwise 4:3), stretch (fills the window)\nview=" << view_shape_id(c.shape)
+	  << "\n# view: original (4:3) or stretch (fills the window, distorted). A true widescreen view does not exist yet.\nview=" << view_shape_id(c.shape)
 	  << "\n# scaling: integer (whole multiples of the game's lines), fit (fills the height, crisp pixels), smooth (fills the height, filtered)\nscaling=" << view_scaling_id(c.scaling) << "\n# side_fill: what is shown beside a 4:3 picture on a wider screen: black, blur (the picture, blurred and dimmed), bezel (bezel.png in the data folder)\nside_fill=" << (c.side_fill == 1 ? "blur" : c.side_fill == 2 ? "bezel" : "black") << "\nscanline_strength=" << c.scan_strength
 	  << "\n# opengl=0 uses the basic SDL renderer (no shaders)\nopengl=" << c.use_opengl
 	  << "\n\n[audio]\nvolume=" << c.volume
@@ -161,6 +161,7 @@ static void load_config(const std::string &path, config &c)
 		}
 	}
 	if (!have_view && old_aspect >= 0) c.shape = view_shape_from_old_aspect(old_aspect);
+	if (c.shape == view_shape::widescreen) c.shape = view_shape::original;   // no game has a wide view yet: say 4:3, show 4:3
 }
 
 // ---------------------------------------------------------------------------
@@ -406,7 +407,6 @@ void app::say_view(bool scaling_changed)
 	else
 	{
 		s = std::string("Shape: ") + view_shape_name(m_cfg.shape);
-		if (m_cfg.shape == view_shape::widescreen) s += " (4:3 here, no wide view yet)";
 		if (m_cfg.shape == view_shape::stretch) s += " (picture is distorted)";
 	}
 	message(s, 4000);
@@ -563,7 +563,13 @@ void app::poll_events()
 				}
 				if (k == SDLK_F7)
 				{
-					m_cfg.shape = view_shape((int(m_cfg.shape) + 1) % 3);
+					// Widescreen is only offered on a game that really draws a wider picture (W3).
+					// None does yet, so F7 goes between Original 4:3 and Stretch; calling a 4:3
+					// picture "Widescreen" would be a lie.
+					const bool wide_view = false;
+					if (m_cfg.shape == view_shape::original) m_cfg.shape = wide_view ? view_shape::widescreen : view_shape::stretch;
+					else if (m_cfg.shape == view_shape::widescreen) m_cfg.shape = view_shape::stretch;
+					else m_cfg.shape = view_shape::original;
 					say_view(false);
 				}
 				if (k == SDLK_F6)
@@ -698,7 +704,7 @@ void app::draw_overlay(canvas &cv)
 		line("F4   video: sharp/smooth/scanl./CRT", 0xffa0e0ff);
 		line("F5   scaling: integer/fit/smooth", 0xffa0e0ff);
 		line("F6   scanline strength", 0xffa0e0ff);
-		line("F7   shape: 4:3 / widescreen / stretch", 0xffa0e0ff);
+		line("F7   shape: original 4:3 / stretch", 0xffa0e0ff);
 		line("F8   sides: black / blur / bezel", 0xffa0e0ff);
 		line("F11  fullscreen            - / +  volume", 0xffa0e0ff);
 		line("F12  screenshot            9  service credit", 0xffa0e0ff);

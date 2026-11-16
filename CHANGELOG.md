@@ -44,9 +44,9 @@ Sections, in this order: **Added**, **Changed**, **Fixed**, **Online**, **Known 
   the height of the screen with crisp pixels, so there is no border above and below at
   1080p or 4K. Integer is still there and says so when it leaves a large part of the screen
   unused. An `integer_scale=` line in an older settings file is not carried over.
-- Shape (F7) is now Original 4:3, Widescreen or Stretch. Stretch is the old 16:9, 16:10 and
-  fill modes under an honest name. Widescreen shows 4:3 for now; it is where the wider view
-  of the court will appear. Works on any monitor shape, ultrawide included.
+- Shape (F7) is now Original 4:3 or Stretch. Stretch is the old 16:9, 16:10 and fill modes
+  under an honest name, and works on any monitor shape, ultrawide included. There is no true
+  widescreen view yet (see Known issues).
 - The interface and the documentation are English only for now. The language option is gone
   from the main menu.
 - Downloads are on the Releases page; builds are no longer kept in the repository.
@@ -63,6 +63,9 @@ Sections, in this order: **Added**, **Changed**, **Fixed**, **Online**, **Known 
   has to be off online.
 
 ### Known issues
+- No true widescreen. The games draw a 4:3 picture; on a wide screen you get that picture
+  with sides (black, blurred or your own image, F8) or stretched (F7). Showing more of the
+  court needs changes to each game and is planned, starting with Tournament Edition.
 - "No team select timer" removes the countdown on one of the two screens it looks for on
   T.E. and T.E. Special Edition.
 - Long mod descriptions are cut off in the Lua mods list.
