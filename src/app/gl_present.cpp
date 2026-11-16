@@ -2,6 +2,7 @@
 #include "gl_present.h"
 #include "shaders.h"
 #include <algorithm>
+#include <cstring>
 #include <vector>
 
 // minimal GL definitions (no system GL headers needed)
@@ -122,19 +123,20 @@ bool gl_presenter::init(SDL_Window *win, std::string &err)
 	// desktop GL 2.1 takes GLSL 1.10; GLES/ANGLE contexts take GLSL ES 1.00
 	const char *versions[2] = { "#version 110\n", "#version 100\n" };
 	int vi = 0;
-	for (int i = 0; i < kNumShaders; i++)
+	for (int i = 0; i <= kNumShaders; i++)      // the last one is the side-fill blur
 	{
+		const shader_def def = i < kNumShaders ? kShaders[i] : shader_def{ "side fill", kSideBlur };
 		std::string e;
 		GLuint v = 0, f = 0;
 		for (; vi < 2; vi++)
 		{
 			v = compile(GL_VERTEX_SHADER, std::string(versions[vi]) + kVertexShader, e);
-			f = v ? compile(GL_FRAGMENT_SHADER, std::string(versions[vi]) + kFragHeader + kShaders[i].src, e) : 0;
+			f = v ? compile(GL_FRAGMENT_SHADER, std::string(versions[vi]) + kFragHeader + def.src, e) : 0;
 			if (v && f) break;
 			if (v) p_glDeleteShader(v);
 			v = 0;
 		}
-		if (!v || !f) { err = std::string("shader '") + kShaders[i].name + "': " + e; shutdown(); return false; }
+		if (!v || !f) { err = std::string("shader '") + def.name + "': " + e; shutdown(); return false; }
 		GLuint p = p_glCreateProgram();
 		p_glAttachShader(p, v);
 		p_glAttachShader(p, f);
@@ -149,12 +151,12 @@ bool gl_presenter::init(SDL_Window *win, std::string &err)
 		{
 			char log[2048] = {};
 			p_glGetProgramInfoLog(p, sizeof(log) - 1, nullptr, log);
-			err = std::string("shader '") + kShaders[i].name + "': " + log;
+			err = std::string("shader '") + def.name + "': " + log;
 			p_glDeleteProgram(p);
 			shutdown();
 			return false;
 		}
-		m_prog[m_nprog++] = p;
+		if (i < kNumShaders) m_prog[m_nprog++] = p; else m_blur = p;
 	}
 	p_glGenTextures(1, &m_tex);
 	m_ok = true;
@@ -167,16 +169,19 @@ void gl_presenter::shutdown()
 	{
 		if (p_glDeleteProgram) for (int i = 0; i < m_nprog; i++) p_glDeleteProgram(m_prog[i]);
 		if (m_tex && p_glDeleteTextures) p_glDeleteTextures(1, &m_tex);
+		if (m_bezel && p_glDeleteTextures) p_glDeleteTextures(1, &m_bezel);
+		if (m_blur && p_glDeleteProgram) p_glDeleteProgram(m_blur);
 		SDL_GL_DeleteContext(m_ctx);
 	}
 	m_ctx = nullptr;
 	m_nprog = 0;
 	m_tex = 0;
+	m_bezel = m_blur = 0;
 	m_tw = m_th = 0;
 	m_ok = false;
 }
 
-void gl_presenter::present(const uint32_t *px, int w, int h, int shader, const view_rect &view, float scan_strength, bool swap_now)
+void gl_presenter::present(const uint32_t *px, int w, int h, int shader, const view_rect &view, float scan_strength, bool swap_now, int side_fill)
 {
 	if (!m_ok) return;
 	shader = std::clamp(shader, 0, m_nprog - 1);
@@ -209,6 +214,35 @@ void gl_presenter::present(const uint32_t *px, int w, int h, int shader, const v
 	p_glViewport(0, 0, ww, wh);
 	p_glClearColor(0, 0, 0, 1);
 	p_glClear(GL_COLOR_BUFFER_BIT);
+	static const float quad[] = { -1, -1, 0, 1, 1, -1, 1, 1, -1, 1, 0, 0, 1, 1, 1, 0 };
+	if ((dw < ww || dh < wh) && (side_fill == 1 || (side_fill == 2 && m_bezel)))
+	{
+		// behind the picture, over the whole window
+		GLuint bp = side_fill == 1 ? m_blur : m_prog[1];
+		p_glUseProgram(bp);
+		float q[16];
+		memcpy(q, quad, sizeof(q));
+		if (side_fill == 1)
+		{
+			// enlarge the picture until it covers the window, cutting what sticks out
+			float pa = float(dw) / float(dh), wa = float(ww) / float(wh);
+			float ku = wa > pa ? 1.0f : wa / pa, kv = wa > pa ? pa / wa : 1.0f;
+			for (int i = 0; i < 4; i++) { q[i * 4 + 2] = 0.5f + (q[i * 4 + 2] - 0.5f) * ku; q[i * 4 + 3] = 0.5f + (q[i * 4 + 3] - 0.5f) * kv; }
+		}
+		else p_glBindTexture(GL_TEXTURE_2D, m_bezel);
+		p_glUniform1i(p_glGetUniformLocation(bp, "u_tex"), 0);
+		p_glUniform2f(p_glGetUniformLocation(bp, "u_src"), float(w), float(h));
+		p_glUniform2f(p_glGetUniformLocation(bp, "u_out"), float(ww), float(wh));
+		p_glUniform2f(p_glGetUniformLocation(bp, "u_origin"), 0.0f, 0.0f);
+		p_glUniform1f(p_glGetUniformLocation(bp, "u_opt"), 0.30f);
+		p_glUniform1f(p_glGetUniformLocation(bp, "u_smooth"), 1.0f);
+		p_glVertexAttribPointer(0, 2, GL_FLOAT, 0, 16, q);
+		p_glVertexAttribPointer(1, 2, GL_FLOAT, 0, 16, q + 2);
+		p_glEnableVertexAttribArray(0);
+		p_glEnableVertexAttribArray(1);
+		p_glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+		p_glBindTexture(GL_TEXTURE_2D, m_tex);
+	}
 	p_glViewport(x, wh - y - dh, dw, dh);
 
 	GLuint p = m_prog[shader];
@@ -219,13 +253,28 @@ void gl_presenter::present(const uint32_t *px, int w, int h, int shader, const v
 	float opt = shader == 2 ? scan_strength : shader == 4 ? 1.0f : 0.0f;
 	p_glUniform1f(p_glGetUniformLocation(p, "u_opt"), opt);
 	p_glUniform1f(p_glGetUniformLocation(p, "u_smooth"), view.smooth ? 1.0f : 0.0f);
-	static const float quad[] = { -1, -1, 0, 1, 1, -1, 1, 1, -1, 1, 0, 0, 1, 1, 1, 0 };
+	p_glUniform2f(p_glGetUniformLocation(p, "u_origin"), float(x), float(wh - y - dh));
 	p_glVertexAttribPointer(0, 2, GL_FLOAT, 0, 16, quad);
 	p_glVertexAttribPointer(1, 2, GL_FLOAT, 0, 16, quad + 2);
 	p_glEnableVertexAttribArray(0);
 	p_glEnableVertexAttribArray(1);
 	p_glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
 	if (swap_now) SDL_GL_SwapWindow(m_win);
+}
+
+void gl_presenter::set_bezel(const uint8_t *rgba, int w, int h)
+{
+	if (!m_ok || !rgba || w <= 0 || h <= 0) return;
+	if (!m_bezel) p_glGenTextures(1, &m_bezel);
+	p_glActiveTexture(GL_TEXTURE0);
+	p_glBindTexture(GL_TEXTURE_2D, m_bezel);
+	p_glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+	p_glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+	p_glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+	p_glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+	p_glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+	p_glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, rgba);
+	if (m_tex) p_glBindTexture(GL_TEXTURE_2D, m_tex);
 }
 
 void gl_presenter::swap() { if (m_ok) SDL_GL_SwapWindow(m_win); }

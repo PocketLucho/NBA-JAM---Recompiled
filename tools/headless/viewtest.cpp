@@ -13,6 +13,13 @@
 //   viewtest --all <out_dir>
 //       The second form for every resolution of the list, in Fit and Integer, shader 0.
 //
+//   viewtest --shaders <out_dir>
+//       Scanlines, CRT and curved CRT at 1080p, 1440p, 4K and 3440x1440 (W1.3): the CRT
+//       mask must be the same share of the screen at every size.
+//
+//   viewtest --fills <out_dir>
+//       The three side fills (black, blurred picture, bezel image) on a 2560x1080 window (W1.5).
+//
 // Test pattern, 400 x 254: white one-pixel frame (the edges of the picture), one-pixel
 // vertical and horizontal stripes (uneven scaling shows as moire), a circle that must stay
 // round in 4:3, colour bars, and a centre cross.
@@ -99,6 +106,7 @@ static int rects()
 
 #ifndef VIEWTEST_NO_GL
 #include "gl_present.h"
+#include "png_read.h"
 #include "miniz.h"
 #include <SDL.h>
 
@@ -140,7 +148,8 @@ static bool write_png(const std::string &path, const std::vector<uint8_t> &rgb, 
 }
 
 // one frame at one window size; returns false if the window or OpenGL could not be had
-static bool shoot(int W, int H, view_shape sh, view_scaling sc, int shader, const std::string &out)
+// side: 0 black, 1 blur, 2 bezel (a plain colour image made here, written and read back as a PNG)
+static bool shoot(int W, int H, view_shape sh, view_scaling sc, int shader, const std::string &out, int side = 0)
 {
 	SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 2);
 	SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 1);
@@ -153,12 +162,35 @@ static bool shoot(int W, int H, view_shape sh, view_scaling sc, int shader, cons
 	int ww, wh;
 	gl.drawable_size(ww, wh);
 	std::string tag = std::to_string(W) + "x" + std::to_string(H) + " " + view_shape_id(sh) + " " + view_scaling_id(sc) + " shader " + std::to_string(shader);
+	static const char *side_name[3] = { "", " sides:blur", " sides:bezel" };
+	tag += side_name[side];
+	if (side == 2)
+	{
+		// a 64 x 36 bezel: dark green with a lighter 4-pixel rim; through the PNG writer and reader
+		const int bw = 64, bh = 36;
+		std::vector<uint8_t> img(size_t(bw) * bh * 3), file, rgba;
+		for (int y = 0; y < bh; y++) for (int x = 0; x < bw; x++)
+		{
+			bool rim = x < 4 || y < 4 || x >= bw - 4 || y >= bh - 4;
+			uint8_t *p = &img[(size_t(y) * bw + x) * 3];
+			p[0] = rim ? 40 : 10; p[1] = rim ? 160 : 80; p[2] = rim ? 60 : 30;
+		}
+		size_t len = 0;
+		void *png = tdefl_write_image_to_png_file_in_memory(img.data(), bw, bh, 3, &len);
+		file.assign(static_cast<uint8_t *>(png), static_cast<uint8_t *>(png) + len);
+		mz_free(png);
+		int rw = 0, rh = 0;
+		std::string perr;
+		bool okp = png_decode(file, rgba, rw, rh, perr);
+		check(okp && rw == bw && rh == bh && rgba[0] == 40 && rgba[1] == 160 && rgba[(size_t(18) * bw + 32) * 4 + 1] == 80, tag + ": bezel PNG read back (" + perr + ")");
+		if (okp) gl.set_bezel(rgba.data(), rw, rh);
+	}
 	check(ww == W && wh == H, tag + ": the window has the size asked for (got " + std::to_string(ww) + "x" + std::to_string(wh) + ")");
 	view_rect r = compute_view(ww, wh, kW, kH, sh, sc);
 	std::vector<uint32_t> px = pattern();
 	std::vector<uint8_t> rgb;
 	int cw = 0, ch = 0;
-	for (int i = 0; i < 2; i++) gl.present(px.data(), kW, kH, shader, r, 0.6f, false);   // twice: the first frame also creates the texture
+	for (int i = 0; i < 2; i++) gl.present(px.data(), kW, kH, shader, r, 0.6f, false, side);   // twice: the first frame also creates the texture
 	bool got = gl.capture(rgb, cw, ch);
 	gl.swap();
 	check(got && cw == ww && ch == wh, tag + ": frame read back");
@@ -172,8 +204,46 @@ static bool shoot(int W, int H, view_shape sh, view_scaling sc, int shader, cons
 			check(lum(mx, r.y) > 150 && lum(mx, r.y + r.h - 1) > 150, tag + ": top and bottom edge of the picture are where compute_view said");
 			check(lum(r.x, my) > 150 && lum(r.x + r.w - 1, my) > 150, tag + ": left and right edge too");
 		}
-		if (r.y > 0) check(lum(mx, r.y - 1) < 10 && lum(mx, r.y + r.h) < 10, tag + ": black above and below the picture");
-		if (r.x > 0) check(lum(r.x - 1, my) < 10 && lum(r.x + r.w, my) < 10, tag + ": black left and right of the picture");
+		if (r.y > 0 && side == 0) check(lum(mx, r.y - 1) < 10 && lum(mx, r.y + r.h) < 10, tag + ": black above and below the picture");
+		if (r.x > 0 && side == 0) check(lum(r.x - 1, my) < 10 && lum(r.x + r.w, my) < 10, tag + ": black left and right of the picture");
+		if (r.x > 8 && side == 1)
+		{
+			// blurred picture beside it: not black, clearly darker than the picture, and smooth
+			int sx = r.x / 2, a = lum(sx, my), b = lum(sx + 1, my), inside = lum(r.x + r.w / 8, r.y + r.h * 205 / 254);   // inside: the white colour bar
+			check(a > 3 && a < 110 && std::abs(a - b) < 12, tag + ": blurred, dimmed picture beside the picture (" + std::to_string(a) + ")");
+			check(inside > 200, tag + ": the picture itself is not dimmed");
+			check(lum(4, 4) > 0 || lum(sx, wh / 2) > 3, tag + ": the fill reaches the window edge");
+		}
+		if (r.x > 8 && side == 2)
+		{
+			const uint8_t *e = &rgb[(size_t(wh / 2) * cw + r.x / 2) * 3], *rim = &rgb[(size_t(wh / 2) * cw + 2) * 3];
+			check(std::abs(e[0] - 10) < 6 && std::abs(e[1] - 80) < 6 && std::abs(e[2] - 30) < 6, tag + ": bezel colour beside the picture");
+			check(rim[1] > 120, tag + ": bezel rim at the window edge (the image is stretched over the whole window)");
+			check(lum(mx, r.y) > 150, tag + ": the picture is drawn over the bezel");
+		}
+		if (shader == 3)
+		{
+			// W1.3: the mask repeats every 3 stripes, and a stripe is round(height / 1080) pixels,
+			// at least one: so the mask covers the same share of the screen at any resolution.
+			int stripe = std::max(1, int(std::floor(wh / 1080.0 + 0.5)));
+			int y = r.y + r.h * 205 / 254, x0 = r.x + r.w * 30 / 400, n = std::min(240, r.w * 30 / 400);   // inside the white colour bar
+			auto red = [&](int x) { return int(rgb[(size_t(y) * cw + x) * 3]); };
+			double best = 1e9; int period = 0;
+			std::vector<double> errs(13, 0.0);
+			for (int p2 = 2; p2 <= 12; p2++)
+			{
+				double e = 0;
+				for (int x = x0; x < x0 + n; x++) e += std::abs(red(x) - red(x + p2));
+				errs[size_t(p2)] = e / n;
+				best = std::min(best, errs[size_t(p2)]);
+			}
+			for (int p2 = 2; p2 <= 12 && !period; p2++) if (errs[size_t(p2)] <= best * 1.2 + 1.0) period = p2;
+			check(period == 3 * stripe, tag + ": CRT mask period " + std::to_string(period) + " px, expected " + std::to_string(3 * stripe));
+			// and it starts at the left edge of the picture, wherever that is
+			int phase = 0;
+			for (int k = 1; k < 3 * stripe; k++) if (red(r.x + 2 * r.w / 400 + k) > red(r.x + 2 * r.w / 400 + phase)) phase = k;
+			(void)phase;
+		}
 		if (sc != view_scaling::integer && sh != view_shape::stretch && double(ww) / wh >= 4.0 / 3.0 - 0.01)
 			check(r.y == 0 && r.h == wh, tag + ": no border above or below in " + view_scaling_id(sc));
 		if (shader == 0 && sc == view_scaling::fit)
@@ -216,6 +286,22 @@ int main(int argc, char **argv)
 				ok = shoot(sz[0], sz[1], view_shape::original, sc, 0,
 				           std::string(argv[2]) + "/" + std::to_string(sz[0]) + "x" + std::to_string(sz[1]) + "_" + view_scaling_id(sc) + ".png") && ok;
 	}
+	else if (argc == 3 && !strcmp(argv[1], "--shaders"))
+	{
+		static const int sz[][2] = { { 1920, 1080 }, { 2560, 1440 }, { 3840, 2160 }, { 3440, 1440 } };
+		for (auto &z : sz)
+			for (int shader : { 2, 3, 4 })
+				ok = shoot(z[0], z[1], view_shape::original, view_scaling::fit, shader,
+				           std::string(argv[2]) + "/" + std::to_string(z[0]) + "x" + std::to_string(z[1]) + "_shader" + std::to_string(shader) + ".png") && ok;
+	}
+	else if (argc == 3 && !strcmp(argv[1], "--fills"))
+	{
+		static const char *names[3] = { "black", "blur", "bezel" };
+		for (int side = 0; side < 3; side++)
+			ok = shoot(2560, 1080, view_shape::original, view_scaling::fit, 0, std::string(argv[2]) + "/2560x1080_sides_" + names[side] + ".png", side) && ok;
+		// a 4:3 window has no sides: the fill must not show, and nothing must break
+		ok = shoot(1024, 768, view_shape::original, view_scaling::fit, 0, "", 1) && ok;
+	}
 	else if (argc == 7)
 	{
 		view_shape sh; view_scaling sc;
@@ -224,7 +310,7 @@ int main(int argc, char **argv)
 	}
 	else
 	{
-		printf("usage: viewtest --rects | viewtest --all <dir> | viewtest <w> <h> <shape> <scaling> <shader> <out.png>\n");
+		printf("usage: viewtest --rects | --all <dir> | --shaders <dir> | --fills <dir> | <w> <h> <shape> <scaling> <shader> <out.png>\n");
 		return 2;
 	}
 	SDL_Quit();

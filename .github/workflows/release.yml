@@ -86,8 +86,10 @@ jobs:
         run: |
           set -o pipefail
           mkdir -p viewtest-out
-          xvfb-run -a -s "-screen 0 5120x2160x24" build/linux/viewtest --all viewtest-out | tee viewtest-gl.log
-          grep -q ", 0 failed" viewtest-gl.log
+          for what in all shaders fills; do
+            xvfb-run -a -s "-screen 0 5120x2160x24" build/linux/viewtest --$what viewtest-out | tee viewtest-$what.log
+            grep -q ", 0 failed" viewtest-$what.log
+          done
 
       - uses: actions/upload-artifact@v4
         with:

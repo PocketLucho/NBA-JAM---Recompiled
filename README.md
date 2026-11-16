@@ -100,7 +100,8 @@ Other keys:
 | F4 | picture: sharp, smooth, scanlines, CRT, curved CRT |
 | F5 | scaling: Fit (fills the height, crisp pixels), Smooth (the same, filtered), Integer (whole-number size, may leave borders) |
 | F6 | scanline strength |
-| F7 | shape: Original 4:3, Widescreen (4:3 for now; more court on games that get a wide view later), Stretch (fills the window, distorts the picture) |
+| F7 | shape: Original 4:3, or Stretch (fills the window, distorts the picture). There is no true widescreen view yet: the games draw a 4:3 picture, and showing more of the court needs changes to each game that are still to come. |
+| F8 | beside a 4:3 picture on a wider screen: black, the picture blurred and dimmed, or your own image (`bezel.png` in the data folder) |
 | F11 or Alt+Enter | fullscreen |
 | F12 or Print Screen | screenshot, saved in `screenshots` |
 | P | pause |
