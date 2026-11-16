@@ -5,7 +5,9 @@
 #include "news.h"
 #include "overlay.h"
 #include "games.h"
-#include "font.h"
+#include "ui/canvas.h"
+#include "ui/gallery.h"
+#include "ui/ui_sdl.h"
 #include "miniz.h"
 #include "gl_present.h"
 #include "netplay.h"
@@ -171,67 +173,6 @@ static void load_config(const std::string &path, config &c)
 // ---------------------------------------------------------------------------
 // small software text renderer
 // ---------------------------------------------------------------------------
-struct canvas
-{
-	int w, h;
-	std::vector<u32> px;
-	canvas(int W, int H) : w(W), h(H), px(size_t(W) * H, 0xff000000) {}
-	void fill(int x, int y, int ww, int hh, u32 c)
-	{
-		for (int j = std::max(0, y); j < std::min(h, y + hh); j++)
-			for (int i = std::max(0, x); i < std::min(w, x + ww); i++) px[size_t(j) * w + i] = c;
-	}
-	void blend(int x, int y, int ww, int hh, u32 c, int alpha)
-	{
-		for (int j = std::max(0, y); j < std::min(h, y + hh); j++)
-			for (int i = std::max(0, x); i < std::min(w, x + ww); i++)
-			{
-				u32 &d = px[size_t(j) * w + i];
-				auto mix = [&](int sh) { return u32((((d >> sh) & 0xff) * (255 - alpha) + ((c >> sh) & 0xff) * alpha) / 255) << sh; };
-				d = 0xff000000 | mix(16) | mix(8) | mix(0);
-			}
-	}
-	void text(int x, int y, const std::string &s, u32 c, int scale = 1, bool shadow = true)
-	{
-		if (shadow) text(x + scale, y + scale, s, 0xff000000, scale, false);
-		for (size_t n = 0; n < s.size(); n++)
-		{
-			unsigned ch = static_cast<unsigned char>(s[n]);
-			if (ch > 127) ch = '?';
-			for (int row = 0; row < 8; row++)
-			{
-				unsigned bits = g_font8[ch][row];
-				for (int col = 0; col < 8; col++)
-					if (bits & (1u << col))
-						fill(x + int(n) * 8 * scale + col * scale, y + row * scale, scale, scale, c);
-			}
-		}
-	}
-	int text_w(const std::string &s, int scale = 1) const { return int(s.size()) * 8 * scale; }
-	// word-wrapped text that never leaves the canvas; returns the y below the last line
-	int text_wrap(int x, int y, const std::string &s, u32 c, int line_h = 10, bool shadow = false)
-	{
-		size_t maxc = size_t(std::max(1, (w - x - 2) / 8));
-		std::string rest = s;
-		while (!rest.empty())
-		{
-			std::string ln = rest;
-			if (ln.size() > maxc)
-			{
-				size_t cut = rest.rfind(' ', maxc);
-				if (cut == std::string::npos || cut == 0) cut = maxc;
-				ln = rest.substr(0, cut);
-				rest = rest.substr(cut);
-				while (!rest.empty() && rest[0] == ' ') rest.erase(0, 1);
-			}
-			else rest.clear();
-			text(x, y, ln, c, 1, shadow);
-			y += line_h;
-		}
-		return y;
-	}
-};
-
 static const char *shader_name(int i)
 {
 	static const char *en[] = { "Sharp (pixel perfect)", "Smooth", "Scanlines", "CRT", "Curved CRT" };
@@ -246,7 +187,10 @@ class app
 {
 public:
 	int run();
+	void show_gallery() { m_gallery = true; }      // --ui-gallery: the widget gallery instead of the menu
 private:
+	bool m_gallery = false;
+	void gallery_loop();
 	enum class screen { menu, net_menu, net_lobby, game, about, mods, mod_detail, controls, news };
 
 	void open_window();
@@ -1693,6 +1637,52 @@ void app::choose_data_folder()
 	SDL_Log("data folder: %s%s", m_base.c_str(), m_paths.portable ? " (portable)" : "");
 }
 
+// The widget gallery of the menu toolkit (roadmap U1), driven by the real devices through
+// the unified input layer: controller, keyboard, mouse and touch. Back leaves it.
+void app::gallery_loop()
+{
+	ui::screen scr = ui::make_gallery();
+	ui::input in;
+	ui::theme th;
+	while (true)
+	{
+		int dw = 0, dh = 0, ww = 0, wh = 0;
+		if (m_gl.ok()) m_gl.drawable_size(dw, dh); else if (m_ren) SDL_GetRendererOutputSize(m_ren, &dw, &dh);
+		SDL_GetWindowSize(m_win, &ww, &wh);
+		// the menu picture's place, in the units the mouse reports (window points, not pixels)
+		view_rect shown = compute_view(dw, dh, ui::screen::kW, ui::screen::kH, view_shape::original, view_scaling::fit);
+		if (dw > 0 && dh > 0)
+		{
+			shown.x = shown.x * ww / dw; shown.w = shown.w * ww / dw;
+			shown.y = shown.y * wh / dh; shown.h = shown.h * wh / dh;
+		}
+		unsigned now = SDL_GetTicks();
+		SDL_Event e;
+		while (SDL_PollEvent(&e))
+		{
+			if (e.type == SDL_QUIT) return;
+			if (e.type == SDL_CONTROLLERDEVICEADDED) SDL_GameControllerOpen(e.cdevice.which);
+			if (e.type == SDL_KEYDOWN && e.key.keysym.sym == SDLK_F11)
+			{
+				m_cfg.fullscreen = !m_cfg.fullscreen;
+				SDL_SetWindowFullscreen(m_win, m_cfg.fullscreen ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0);
+				continue;
+			}
+			if (e.type == SDL_KEYDOWN && (e.key.keysym.sym == SDLK_F12 || e.key.keysym.sym == SDLK_PRINTSCREEN)) { m_shot = true; continue; }
+			ui::raw_event raw;
+			if (ui::from_sdl(e, shown, ww, wh, raw)) in.feed(raw, now);
+		}
+		in.tick(now);
+		ui::event ev;
+		while (in.next(ev))
+			if (ui::gallery_react(scr, scr.handle(ev), now)) return;
+		canvas cv(ui::screen::kW, ui::screen::kH);
+		scr.draw(cv, th, in.last_device(), now);
+		present(cv.px.data(), cv.w, cv.h, false);
+		SDL_Delay(8);
+	}
+}
+
 int app::run()
 {
 	SDL_SetHint(SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS, "1");
@@ -1730,6 +1720,8 @@ int app::run()
 	refresh_availability();
 	// start on the first available game
 	for (size_t i = 0; i < m_avail.size(); i++) if (m_avail[i]) { m_sel = int(i); break; }
+
+	if (m_gallery) { gallery_loop(); m_quit = true; }
 
 	using clock = std::chrono::steady_clock;
 	auto next = clock::now();
@@ -1793,6 +1785,7 @@ int main(int argc, char **argv)
 	try
 	{
 		app a;
+		if (argc > 1 && std::string(argv[1]) == "--ui-gallery") a.show_gallery();
 		return a.run();
 	}
 	catch (const std::exception &e)

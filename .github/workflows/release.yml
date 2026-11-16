@@ -76,6 +76,13 @@ jobs:
           build/linux/newstest | tee newstest.log
           grep -q ", 0 failed" newstest.log
 
+      - name: Menu toolkit tests (no display needed)
+        run: |
+          set -o pipefail
+          mkdir -p viewtest-out
+          build/linux/uitest viewtest-out | tee uitest.log
+          grep -q ", 0 failed" uitest.log
+
       - name: Picture placement tests (no display needed)
         run: |
           set -o pipefail
@@ -86,7 +93,7 @@ jobs:
         run: |
           set -o pipefail
           mkdir -p viewtest-out
-          for what in all shaders fills; do
+          for what in all shaders fills gallery; do
             xvfb-run -a -s "-screen 0 5120x2160x24" build/linux/viewtest --$what viewtest-out | tee viewtest-$what.log
             grep -q ", 0 failed" viewtest-$what.log
           done
