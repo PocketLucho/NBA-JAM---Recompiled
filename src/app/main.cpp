@@ -22,6 +22,9 @@
 #include <string>
 #include <thread>
 #include <ctime>
+#ifndef _WIN32
+#include <unistd.h>
+#endif
 #include <vector>
 
 // ---------------------------------------------------------------------------
@@ -380,6 +383,11 @@ void app::poll_events()
 				if (e.cbutton.button == SDL_CONTROLLER_BUTTON_A || e.cbutton.button == SDL_CONTROLLER_BUTTON_START) m_menu_ok = true;
 				if (e.cbutton.button == SDL_CONTROLLER_BUTTON_GUIDE || (m_screen != screen::game && e.cbutton.button == SDL_CONTROLLER_BUTTON_B)) m_menu_back = true;
 				if (e.cbutton.button == SDL_CONTROLLER_BUTTON_Y) m_menu_net = true;
+				// Back + Start together: back to the menu (Guide is taken by Steam on SteamOS / Big Picture)
+				if (e.cbutton.button == SDL_CONTROLLER_BUTTON_START || e.cbutton.button == SDL_CONTROLLER_BUTTON_BACK)
+					if (SDL_GameController *gc = SDL_GameControllerFromInstanceID(e.cbutton.which))
+						if (SDL_GameControllerGetButton(gc, SDL_CONTROLLER_BUTTON_START) && SDL_GameControllerGetButton(gc, SDL_CONTROLLER_BUTTON_BACK))
+							m_menu_back = true;
 				break;
 			case SDL_TEXTINPUT:
 				if (m_editing)
@@ -546,6 +554,7 @@ void app::draw_overlay(canvas &cv)
 		line(tr("J3 num8462  n0 / n. / nIntro 3     7", "P3 num8462  n0 / n. / nEnter 3     7"));
 		line(tr("J4 IJKL     H / ; / U         4     8", "P4 IJKL     H / ; / U         4     8"));
 		line(tr("Mando: A tiro B pase X/RB turbo Back moneda", "Pad: A shoot B pass X/RB turbo Back coin"));
+		line(tr("Back+Start: volver al menu", "Back+Start: back to the menu"));
 		y += 3;
 		line(tr("Esc  volver al menu        P  pausa", "Esc  back to menu          P  pause"), 0xffa0e0ff);
 		line(tr("F2   interruptor TEST      F3 reset", "F2   TEST switch           F3 reset"), 0xffa0e0ff);
@@ -952,11 +961,16 @@ bool app::game_frame()
 int app::run()
 {
 	SDL_SetHint(SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS, "1");
-	if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_GAMECONTROLLER) != 0)
+	if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMECONTROLLER) != 0)
 	{
+		std::fprintf(stderr, "SDL_Init: %s\n", SDL_GetError());
 		SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "NBA JAM Recomp", SDL_GetError(), nullptr);
 		return 1;
 	}
+	// no sound is not fatal (e.g. a system without a supported audio server)
+	if (SDL_InitSubSystem(SDL_INIT_AUDIO) != 0) std::fprintf(stderr, "audio: %s\n", SDL_GetError());
+	std::fprintf(stderr, "NBA JAM Recomp %s - video: %s, audio: %s\n", app_version().c_str(), SDL_GetCurrentVideoDriver(),
+	             SDL_GetCurrentAudioDriver() ? SDL_GetCurrentAudioDriver() : "none");
 	char *bp = SDL_GetBasePath();
 	m_base = bp ? bp : ".";
 	SDL_free(bp);
@@ -984,6 +998,7 @@ int app::run()
 	want.samples = 1024;
 	m_audio = SDL_OpenAudioDevice(nullptr, 0, &want, &have, 0);
 	if (m_audio) SDL_PauseAudioDevice(m_audio, 0);
+	else std::fprintf(stderr, "audio device: %s\n", SDL_GetError());
 
 	refresh_availability();
 	// start on the first available game
@@ -1037,6 +1052,16 @@ int app::run()
 int main(int, char **)
 {
 	SDL_SetMainReady();
+#ifndef _WIN32
+	// started from a file manager or Steam: keep the messages in a log next to the program
+	if (!isatty(2))
+		if (char *bp = SDL_GetBasePath())
+		{
+			std::string log = std::string(bp) + "nbajam_recomp.log";
+			SDL_free(bp);
+			if (std::freopen(log.c_str(), "w", stderr)) std::setvbuf(stderr, nullptr, _IOLBF, 0);
+		}
+#endif
 	try
 	{
 		app a;

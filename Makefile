@@ -40,7 +40,7 @@ win:
 	  -o $(WIN_OUT)/NBAJamRecomp.exe
 
 # ---------------- application (Linux, for testing) ----------------
-SDL2L ?= /home/claude/deps/sdl2linux
+SDL2L ?= /home/claude/deps/sdl2linux2
 APP_INC = -Isrc/emu -Isrc/mame -Isrc/board -Isrc/app -Isrc/third_party/miniz
 $(BUILD)/miniz.o: src/third_party/miniz/miniz.c
 	$(CC) -O2 -c $< -o $@

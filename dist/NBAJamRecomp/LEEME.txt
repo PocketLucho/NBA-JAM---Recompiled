@@ -4,8 +4,9 @@ Creado por Pocket_lucho con Claude (Anthropic).
 Proyecto: https://github.com/PocketLucho/NBA-JAM---Recompiled
 Si quieres apoyarme ve a https://buymeacoffee.com/pocket_lucho
 
-Ejecuta NBAJamRecomp.exe (Windows 10/11 de 64 bits, sin instalacion). Al
-arrancar aparece un menu para elegir el juego (flechas + Enter, o el mando).
+Windows: ejecuta NBAJamRecomp.exe (Windows 10/11 de 64 bits, sin instalacion).
+Linux / SteamOS: ejecuta NBAJamRecomp (ver "LINUX Y STEAMOS" mas abajo).
+Al arrancar aparece un menu para elegir el juego (flechas + Enter, o el mando).
 Esc vuelve al menu. El idioma (castellano / English) se cambia en el menu.
 
 (English: see README.txt)
@@ -46,6 +47,26 @@ datos. Quien quiera compilarlas el mismo puede usar tools/build_roms.sh del
 codigo fuente: lo que genera en data\ se usa si no se encuentran las ROMs.
 
 
+LINUX Y STEAMOS (Steam Deck, Legion Go S...)
+--------------------------------------------
+  No hay que instalar nada: el programa lleva dentro lo que necesita y usa el
+  sonido del sistema (PipeWire/PulseAudio). Requiere Linux x86-64 con glibc
+  2.38 o mas reciente (SteamOS actual, Ubuntu 24.04+, Fedora 39+...).
+
+  1. En modo escritorio descomprime el .tar.gz en una carpeta tuya, por
+     ejemplo /home/deck/Games/NBAJamRecomp (Dolphin: clic derecho ->
+     Extraer -> Extraer aqui). No lo ejecutes desde dentro del .tar.gz.
+  2. Copia tus ROMs en la carpeta roms/.
+  3. Doble clic en NBAJamRecomp. Si no arranca: clic derecho ->
+     Propiedades -> Permisos -> marca "Es ejecutable".
+  4. Para jugar en modo juego: en Steam (modo escritorio) "Juegos -> Anadir
+     un juego que no es de Steam", pulsa "Examinar", elige NBAJamRecomp y
+     acepta. En las propiedades puedes ponerle nombre e imagen.
+     En el mando: Back + Start vuelve al menu de juegos (el boton Steam/Guia
+     lo usa Steam).
+  Si algo falla, mira el fichero nbajam_recomp.log junto al programa.
+
+
 CONTROLES (teclado)
 -------------------
               Arriba Abajo Izq Der   Tiro  Pase  Turbo  Start  Moneda
@@ -55,7 +76,7 @@ CONTROLES (teclado)
   Jugador 4   I   K   J   L           H     ;     U      4      8
 
   Mandos: cada mando conectado controla un jugador (A tiro, B pase,
-  X/gatillo turbo, Start, Back = moneda).
+  X/gatillo turbo, Start, Back = moneda, Back + Start = volver al menu).
 
   F1   ayuda en pantalla             F2  interruptor TEST (menu de servicio)
   F3   reset

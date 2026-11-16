@@ -4,8 +4,9 @@ Created by Pocket_lucho with Claude (Anthropic).
 Project: https://github.com/PocketLucho/NBA-JAM---Recompiled
 If you want to support me, go to https://buymeacoffee.com/pocket_lucho
 
-Run NBAJamRecomp.exe (64-bit Windows 10/11, no installation). A menu lets you
-pick the game (arrows + Enter, or a gamepad). Esc goes back to the menu. The
+Windows: run NBAJamRecomp.exe (64-bit Windows 10/11, no installation).
+Linux / SteamOS: run NBAJamRecomp (see "LINUX AND STEAMOS" below).
+A menu lets you pick the game (arrows + Enter, or a gamepad). Esc goes back to the menu. The
 language (castellano / English) is chosen in the menu.
 
 (Castellano: ver LEEME.txt)
@@ -46,6 +47,25 @@ comes from. To build them yourself use tools/build_roms.sh from the source
 code: its output in data\ is used when the ROMs are not found.
 
 
+LINUX AND STEAMOS (Steam Deck, Legion Go S...)
+----------------------------------------------
+  Nothing to install: the program carries what it needs and uses the system
+  sound server (PipeWire/PulseAudio). Needs x86-64 Linux with glibc 2.38 or
+  newer (current SteamOS, Ubuntu 24.04+, Fedora 39+...).
+
+  1. In desktop mode unpack the .tar.gz into a folder of yours, e.g.
+     /home/deck/Games/NBAJamRecomp (Dolphin: right click -> Extract ->
+     Extract here). Do not run it from inside the .tar.gz.
+  2. Copy your ROMs into the roms/ folder.
+  3. Double-click NBAJamRecomp. If it does not start: right click ->
+     Properties -> Permissions -> tick "Is executable".
+  4. To play in game mode: in Steam (desktop mode) "Games -> Add a Non-Steam
+     Game", press "Browse", pick NBAJamRecomp and confirm.
+     On the pad: Back + Start returns to the game menu (Steam takes the
+     Steam/Guide button).
+  If something fails, look at nbajam_recomp.log next to the program.
+
+
 CONTROLS (keyboard)
 -------------------
               Up Down Left Right     Shoot Pass  Turbo  Start  Coin
@@ -55,7 +75,7 @@ CONTROLS (keyboard)
   Player 4    I   K   J   L           H     ;     U      4      8
 
   Gamepads: each pad controls one player (A shoot, B pass, X/trigger turbo,
-  Start, Back = coin).
+  Start, Back = coin, Back + Start = back to the menu).
 
   F1   on-screen help                F2  TEST switch (service menu)
   F3   reset
