@@ -57,7 +57,7 @@ None of these need a ROM; CI runs them on every pull request.
 | Program | Checks |
 |---|---|
 | `build/linux/luatest` | the Lua mod engine: options, sandbox, instruction budget, ROM patch API, hooks, `mods.ini`, the netplay guard |
-| `build/linux/uitest [dir]` | the menu toolkit: the automated walk of the navigation rule, every input type, repeat timing, prompts, text fitting; with a folder, PNGs of the widget gallery. `viewtest --gallery <dir>` draws it through the presenter at four sizes, and `NBAJamRecomp --ui-gallery` opens it in the program |
+| `build/linux/uitest [dir]` | the menu toolkit: the automated walk of the navigation rule, every input type, repeat timing, prompts, text fitting; the project lettering; with a folder, PNGs of the widget gallery and `font_sheet.png`, the full character sheet. `viewtest --gallery <dir>` draws it through the presenter at four sizes, and `NBAJamRecomp --ui-gallery` opens it in the program |
 | `build/linux/pathtest` | the data folder: portable and per-user modes, first-run seeding, moving an older setup |
 | `build/linux/viewtest --rects` | where the picture goes in the window for every shape, scaling and listed resolution |
 | `xvfb-run -a -s "-screen 0 5120x2160x24" build/linux/viewtest --all <dir>` | draws a test pattern through the real presenter at every listed resolution, checks the result and writes PNGs. `--shaders <dir>` does the same for scanlines, CRT and curved CRT at 1080p, 1440p, 4K and 3440x1440, and `--fills <dir>` for the three side fills. One frame: `viewtest <w> <h> <shape> <scaling> <shader> <out.png>` |

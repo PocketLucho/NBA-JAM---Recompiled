@@ -341,6 +341,92 @@ int main(int argc, char **argv)
 		CHECK(same, "drawing: the same state and time give the same picture");
 	}
 
+	// ---------------- U2.1: the project lettering ----------------
+	{
+		std::string errs;
+		for (auto &e : lettering_errors()) errs += " " + e;
+		CHECK(errs.empty(), "lettering: every drawing is well formed" + errs);
+		std::string missing;
+		for (int c = 32; c < 127; c++)
+		{
+			if (c >= 'a' && c <= 'z') continue;
+			for (face f : { face::note, face::list, face::title })
+				if (!has_glyph(char(c), f)) missing += char(c);
+		}
+		CHECK(missing.empty(), "lettering: capitals, digits and all ASCII punctuation are drawn in the three sizes" + (missing.empty() ? "" : ", missing: " + missing));
+		CHECK(text_h(face::note) == 7 && text_h(face::list) == 8 && text_h(face::title) == 16, "lettering: three sizes, 7, 8 and 16 pixels high");
+		CHECK(text_w("start a game", face::list) == text_w("START A GAME", face::list) && !has_glyph('a', face::list), "lettering: lower case is shown as capitals");
+		CHECK(text_w("\xc3\xb1", face::list) == text_w("??", face::list) && !has_glyph('\xf1', face::list), "lettering: a character it does not have is shown as '?' and reported by has_glyph");
+		CHECK(text_w("", face::list) == 0 && text_w("I", face::list) < text_w("M", face::list) && text_w("AB", face::title) == 2 * text_w("AB", face::list), "lettering: widths are per glyph, and the title is twice the list size");
+
+		// drawn text: a gradient from top to bottom inside a dark outline, and nothing outside its box
+		const ink k = { 0xffffec60, 0xffff5a10, 0xff000000 };
+		bool boxed = true, graded = true, outlined = true;
+		for (face f : { face::note, face::list, face::title })
+		{
+			canvas cv(200, 60);
+			std::fill(cv.px.begin(), cv.px.end(), 0xff123456);
+			const std::string s = "HE'S ON FIRE 42";
+			int x0 = 20, y0 = 20, w = text_w(s, f), h = text_h(f), far = f == face::title ? 2 : 1;
+			draw_text(cv, x0, y0, s, f, k);
+			int out = 0;
+			for (int y = 0; y < cv.h; y++) for (int x = 0; x < cv.w; x++)
+			{
+				uint32_t c = cv.px[size_t(y) * cv.w + x];
+				if (c == 0xff123456) continue;
+				if (x < x0 - 1 || y < y0 - 1 || x >= x0 + w + far || y >= y0 + h + far) boxed = false;
+				if (c == k.outline) out++;
+			}
+			outlined = outlined && out > 0;
+			// the stem of the H: red falls from the top row to the bottom row
+			auto green = [&](int row) { return int((cv.px[size_t(y0 + row) * cv.w + size_t(x0 + (f == face::title ? 1 : 0))] >> 8) & 0xff); };
+			graded = graded && green(1) > green(h / 2) && green(h / 2) > green(h - 2);
+		}
+		CHECK(boxed, "lettering: text stays inside its measured box plus the outline");
+		CHECK(outlined && graded, "lettering: letters have an outline and a top-to-bottom gradient");
+
+		std::string longs = "A label that is far too long for its row";
+		bool ok = true, start = false, end = false;
+		for (face f : { face::note, face::list, face::title })
+			for (int px = 0; px <= 330; px += 7)
+			{
+				ok = ok && text_w(fit_px(longs, px, f), f) <= px;
+				for (unsigned t = 0; t < 12000; t += 190) ok = ok && text_w(marquee_px(longs, px, f, t), f) <= px;
+				if (px >= 24) for (auto &l : wrap_px(longs, px, f, 3)) ok = ok && text_w(l, f) <= px;
+			}
+		CHECK(ok, "lettering: fitted, scrolling and wrapped text is never wider than its space");
+		for (unsigned t = 0; t < 12000; t += 10)
+		{
+			std::string m = marquee_px(longs, 120, face::list, t);
+			start = start || longs.compare(0, m.size(), m) == 0;
+			end = end || (m.size() <= longs.size() && longs.compare(longs.size() - m.size(), m.size(), m) == 0);
+		}
+		std::string f12 = fit_px(longs, 90, face::list);
+		CHECK(start && end && f12.size() > 4 && f12.substr(f12.size() - 2) == ".." && fit_px("SHORT", 90, face::list) == "SHORT", "lettering: the marquee shows the beginning and reaches the end; a shortened text ends in two dots");
+		auto lines = wrap_px("Reset the game? Anything not saved in the game's own memory is lost.", 240, face::list, 4);
+		std::string joined;
+		for (auto &l : lines) joined += (joined.empty() ? "" : " ") + l;
+		CHECK(lines.size() > 1 && joined == "Reset the game? Anything not saved in the game's own memory is lost.", "lettering: wrapping breaks at spaces and loses no word");
+
+		canvas sheet(screen::kW, screen::kH);
+		for (int y = 0; y < sheet.h; y++) sheet.fill(0, y, sheet.w, 1, 0xff14102c);
+		draw_sheet(sheet, { th.title_top, th.title_bottom, th.outline }, th.ink_for(th.text));
+		write_png(out, "font_sheet.png", sheet);
+		// the gallery is drawn with it: the title area holds the title's two gradient ends
+		screen g = make_gallery();
+		canvas cg(screen::kW, screen::kH);
+		g.draw(cg, th, device::xbox, 0);
+		bool warm = false, hot = false;
+		for (int y = 2; y < 21; y++) for (int x = 0; x < cg.w; x++)
+		{
+			uint32_t c = cg.px[size_t(y) * cg.w + x];
+			int r = (c >> 16) & 0xff, gr = (c >> 8) & 0xff, b = c & 0xff;
+			warm = warm || (y < 8 && r > 240 && gr > 200 && b < 140);
+			hot = hot || (y > 14 && r > 230 && gr < 140 && b < 60);
+		}
+		CHECK(warm && hot, "lettering: the gallery's title is drawn in the project lettering with the theme's gradient");
+	}
+
 	printf("\n%d checks, %d failed\n", g_run, g_fail);
 	return g_fail ? 1 : 0;
 }

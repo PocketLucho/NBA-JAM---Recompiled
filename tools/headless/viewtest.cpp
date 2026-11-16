@@ -367,13 +367,13 @@ static bool shoot_gallery(int W, int H, const std::string &out)
 	{
 		check(r.h == wh || r.w == ww, tag + ": the menu fills the height (or the width)");
 		check(std::fabs(double(r.w) / r.h - 4.0 / 3.0) < 0.01, tag + ": the menu keeps its 4:3 shape");
-		// the title is drawn 16 canvas rows high in the title colour: its height on screen is
+		// the title is drawn 16 canvas rows high in the title gradient (yellow to red): its height on screen is
 		// the same share of the screen at every size (W1.4: text does not stay tiny at 4K)
 		int top = -1, bottom = -1;
 		for (int y = r.y; y < r.y + r.h * 7 / 100; y++)       // the title band: the top 7% of the menu
 		{
 			bool hit = false;
-			for (int x = r.x; x < r.x + r.w && !hit; x++) { const uint8_t *p = &rgb[(size_t(y) * cw + x) * 3]; hit = p[0] > 230 && p[1] > 100 && p[1] < 160 && p[2] < 80; }
+			for (int x = r.x; x < r.x + r.w && !hit; x++) { const uint8_t *p = &rgb[(size_t(y) * cw + x) * 3]; hit = p[0] > 225 && p[0] - p[2] > 90; }
 			if (hit) { if (top < 0) top = y; bottom = y; }
 		}
 		double share = top < 0 ? 0 : double(bottom - top + 1) / wh;
