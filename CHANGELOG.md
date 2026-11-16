@@ -24,6 +24,8 @@ Sections, in this order: **Added**, **Changed**, **Fixed**, **Online**, **Known 
 - A copy without `portable.txt` that finds an older setup next to the program offers to
   move it.
 - This changelog.
+- Release pages are written from this changelog: what changed, which download is for which
+  system, first-run steps, and whether the version plays online with the previous one.
 
 ### Changed
 - The interface and the documentation are English only for now. The language option is gone
