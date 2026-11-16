@@ -30,8 +30,11 @@ Sections, in this order: **Added**, **Changed**, **Fixed**, **Online**, **Known 
   shows its release notes. It only informs you; nothing is downloaded or installed. Turn it
   off with Left/Right on "News and updates" or `news=0` in `nbajam_recomp.ini`.
 - About shows the latest release and where to get it.
-- Side fill (F8): beside a 4:3 picture on a wider screen you can have black, the picture
-  itself blurred and dimmed, or your own image (`bezel.png` in the data folder).
+- Side fill (F8): around a 4:3 picture on a wider screen you can have black, the picture
+  itself blurred and dimmed, or an overlay.
+- Overlays and borders, as in RetroArch: PNGs in the `overlays` folder are shown around
+  the game, drawn over it where they have a transparent opening. RetroArch border overlays
+  (`.cfg` with its `.png`) can be copied in as they are. Two original borders are included.
 
 ### Changed
 - The CRT mask is as coarse at 4K as at 1080p (it was twice as fine at 4K), and it lines up

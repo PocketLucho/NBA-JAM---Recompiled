@@ -101,7 +101,7 @@ Other keys:
 | F5 | scaling: Fit (fills the height, crisp pixels), Smooth (the same, filtered), Integer (whole-number size, may leave borders) |
 | F6 | scanline strength |
 | F7 | shape: Original 4:3, or Stretch (fills the window, distorts the picture). There is no true widescreen view yet: the games draw a 4:3 picture, and showing more of the court needs changes to each game that are still to come. |
-| F8 | beside a 4:3 picture on a wider screen: black, the picture blurred and dimmed, or your own image (`bezel.png` in the data folder) |
+| F8 | around the 4:3 picture on a wider screen: black, the picture blurred and dimmed, then each overlay in the `overlays` folder (see [Overlays](#overlays-and-borders)) |
 | F11 or Alt+Enter | fullscreen |
 | F12 or Print Screen | screenshot, saved in `screenshots` |
 | P | pause |
@@ -110,6 +110,25 @@ Other keys:
 | Esc | back to the menu |
 
 Keyboard keys are changed in `nbajam_recomp.ini`.
+
+### Overlays and borders
+
+On a screen wider than 4:3, F8 puts a picture around the game, as RetroArch's overlays do.
+Two come with the program (`cabinet_purple`, `tube_shadow`). To use your own, put a PNG in
+the `overlays` folder (next to the program in the portable download; About shows the data
+folder otherwise) and press F8 until its name appears.
+
+* The usual border is a 16:9 image, for example 1920x1080, with a transparent 4:3 opening
+  in the middle (1440x1080). The game shows through the opening and the border is drawn
+  over it, so it can overlap the edge of the picture: a rounded tube, a shadow, a frame.
+* The image is scaled to the height of the screen and centred, so the same border fits
+  16:9, 16:10 and ultrawide screens.
+* **RetroArch border overlays work:** copy the `.cfg` and its `.png` into `overlays`. The
+  image named by `overlay0_overlay` is used; button layouts are ignored.
+* A PNG with no transparency is drawn behind the game instead.
+* Use scaling Fit or Smooth (F5), so the picture fills the opening. `overlay_opacity=` in
+  `nbajam_recomp.ini` makes a border see-through (0.1 to 1).
+* PNGs must be 8 bits per channel and not interlaced.
 
 ## 5. Online
 

@@ -43,6 +43,9 @@ typedef void GLvoid;
 #define GL_UNPACK_ALIGNMENT 0x0CF5
 #define GL_UNPACK_ROW_LENGTH 0x0CF2
 #define GL_TEXTURE0 0x84C0
+#define GL_BLEND 0x0BE2
+#define GL_SRC_ALPHA 0x0302
+#define GL_ONE_MINUS_SRC_ALPHA 0x0303
 
 #define GLFUNCS \
 	F(void, glGenTextures, (GLsizei, GLuint *)) \
@@ -78,7 +81,10 @@ typedef void GLvoid;
 	F(void, glVertexAttribPointer, (GLuint, GLint, GLenum, GLboolean, GLsizei, const GLvoid *)) \
 	F(void, glEnableVertexAttribArray, (GLuint)) \
 	F(void, glActiveTexture, (GLenum)) \
-	F(void, glReadPixels, (GLint, GLint, GLsizei, GLsizei, GLenum, GLenum, GLvoid *))
+	F(void, glReadPixels, (GLint, GLint, GLsizei, GLsizei, GLenum, GLenum, GLvoid *)) \
+	F(void, glEnable, (GLenum)) \
+	F(void, glDisable, (GLenum)) \
+	F(void, glBlendFunc, (GLenum, GLenum))
 
 #define F(ret, name, args) typedef ret (APIENTRY *PFN_##name) args; static PFN_##name p_##name;
 GLFUNCS
@@ -123,9 +129,9 @@ bool gl_presenter::init(SDL_Window *win, std::string &err)
 	// desktop GL 2.1 takes GLSL 1.10; GLES/ANGLE contexts take GLSL ES 1.00
 	const char *versions[2] = { "#version 110\n", "#version 100\n" };
 	int vi = 0;
-	for (int i = 0; i <= kNumShaders; i++)      // the last one is the side-fill blur
+	for (int i = 0; i <= kNumShaders + 1; i++)  // the last two are the side-fill blur and the overlay
 	{
-		const shader_def def = i < kNumShaders ? kShaders[i] : shader_def{ "side fill", kSideBlur };
+		const shader_def def = i < kNumShaders ? kShaders[i] : i == kNumShaders ? shader_def{ "side fill", kSideBlur } : shader_def{ "overlay", kOverlay };
 		std::string e;
 		GLuint v = 0, f = 0;
 		for (; vi < 2; vi++)
@@ -156,7 +162,7 @@ bool gl_presenter::init(SDL_Window *win, std::string &err)
 			shutdown();
 			return false;
 		}
-		if (i < kNumShaders) m_prog[m_nprog++] = p; else m_blur = p;
+		if (i < kNumShaders) m_prog[m_nprog++] = p; else if (i == kNumShaders) m_blur = p; else m_ovprog = p;
 	}
 	p_glGenTextures(1, &m_tex);
 	m_ok = true;
@@ -171,12 +177,13 @@ void gl_presenter::shutdown()
 		if (m_tex && p_glDeleteTextures) p_glDeleteTextures(1, &m_tex);
 		if (m_bezel && p_glDeleteTextures) p_glDeleteTextures(1, &m_bezel);
 		if (m_blur && p_glDeleteProgram) p_glDeleteProgram(m_blur);
+		if (m_ovprog && p_glDeleteProgram) p_glDeleteProgram(m_ovprog);
 		SDL_GL_DeleteContext(m_ctx);
 	}
 	m_ctx = nullptr;
 	m_nprog = 0;
 	m_tex = 0;
-	m_bezel = m_blur = 0;
+	m_bezel = m_blur = m_ovprog = 0;
 	m_tw = m_th = 0;
 	m_ok = false;
 }
@@ -215,21 +222,20 @@ void gl_presenter::present(const uint32_t *px, int w, int h, int shader, const v
 	p_glClearColor(0, 0, 0, 1);
 	p_glClear(GL_COLOR_BUFFER_BIT);
 	static const float quad[] = { -1, -1, 0, 1, 1, -1, 1, 1, -1, 1, 0, 0, 1, 1, 1, 0 };
-	if ((dw < ww || dh < wh) && (side_fill == 1 || (side_fill == 2 && m_bezel)))
+	if (side_fill == 2 && m_bezel && !m_ov_alpha) draw_overlay(ww, wh);    // an opaque image goes behind the picture
+	if ((dw < ww || dh < wh) && side_fill == 1)
 	{
 		// behind the picture, over the whole window
-		GLuint bp = side_fill == 1 ? m_blur : m_prog[1];
+		GLuint bp = m_blur;
 		p_glUseProgram(bp);
 		float q[16];
 		memcpy(q, quad, sizeof(q));
-		if (side_fill == 1)
 		{
 			// enlarge the picture until it covers the window, cutting what sticks out
 			float pa = float(dw) / float(dh), wa = float(ww) / float(wh);
 			float ku = wa > pa ? 1.0f : wa / pa, kv = wa > pa ? pa / wa : 1.0f;
 			for (int i = 0; i < 4; i++) { q[i * 4 + 2] = 0.5f + (q[i * 4 + 2] - 0.5f) * ku; q[i * 4 + 3] = 0.5f + (q[i * 4 + 3] - 0.5f) * kv; }
 		}
-		else p_glBindTexture(GL_TEXTURE_2D, m_bezel);
 		p_glUniform1i(p_glGetUniformLocation(bp, "u_tex"), 0);
 		p_glUniform2f(p_glGetUniformLocation(bp, "u_src"), float(w), float(h));
 		p_glUniform2f(p_glGetUniformLocation(bp, "u_out"), float(ww), float(wh));
@@ -259,12 +265,49 @@ void gl_presenter::present(const uint32_t *px, int w, int h, int shader, const v
 	p_glEnableVertexAttribArray(0);
 	p_glEnableVertexAttribArray(1);
 	p_glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+	if (side_fill == 2 && m_bezel && m_ov_alpha) draw_overlay(ww, wh);     // a border with an opening goes over it
 	if (swap_now) SDL_GL_SwapWindow(m_win);
 }
 
-void gl_presenter::set_bezel(const uint8_t *rgba, int w, int h)
+void gl_presenter::overlay_rect(int win_w, int win_h, int img_w, int img_h, int &x, int &w)
 {
-	if (!m_ok || !rgba || w <= 0 || h <= 0) return;
+	// the height of the window, its own shape, centred (wider than the window: the sides are cut)
+	w = img_h > 0 ? int(double(img_w) * win_h / img_h + 0.5) : win_w;
+	x = (win_w - w) / 2;
+}
+
+void gl_presenter::draw_overlay(int ww, int wh)
+{
+	int ox, ow;
+	overlay_rect(ww, wh, m_ov_w, m_ov_h, ox, ow);
+	p_glViewport(ox, 0, ow, wh);
+	p_glBindTexture(GL_TEXTURE_2D, m_bezel);
+	p_glUseProgram(m_ovprog);
+	p_glUniform1i(p_glGetUniformLocation(m_ovprog, "u_tex"), 0);
+	p_glUniform1f(p_glGetUniformLocation(m_ovprog, "u_opt"), m_ov_alpha ? m_ov_opacity : 1.0f);
+	static const float q[] = { -1, -1, 0, 1, 1, -1, 1, 1, -1, 1, 0, 0, 1, 1, 1, 0 };
+	p_glVertexAttribPointer(0, 2, GL_FLOAT, 0, 16, q);
+	p_glVertexAttribPointer(1, 2, GL_FLOAT, 0, 16, q + 2);
+	p_glEnableVertexAttribArray(0);
+	p_glEnableVertexAttribArray(1);
+	if (m_ov_alpha) { p_glEnable(GL_BLEND); p_glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA); }
+	p_glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+	if (m_ov_alpha) p_glDisable(GL_BLEND);
+	p_glBindTexture(GL_TEXTURE_2D, m_tex);
+}
+
+void gl_presenter::set_overlay(const uint8_t *rgba, int w, int h)
+{
+	if (!m_ok) return;
+	if (!rgba || w <= 0 || h <= 0)
+	{
+		if (m_bezel) p_glDeleteTextures(1, &m_bezel);
+		m_bezel = 0;
+		return;
+	}
+	m_ov_w = w; m_ov_h = h;
+	m_ov_alpha = false;
+	for (size_t i = 3; i < size_t(w) * h * 4 && !m_ov_alpha; i += 4) m_ov_alpha = rgba[i] != 255;
 	if (!m_bezel) p_glGenTextures(1, &m_bezel);
 	p_glActiveTexture(GL_TEXTURE0);
 	p_glBindTexture(GL_TEXTURE_2D, m_bezel);

@@ -3,7 +3,7 @@
 #include "version.h"
 #include "paths.h"
 #include "news.h"
-#include "png_read.h"
+#include "overlay.h"
 #include "games.h"
 #include "font.h"
 #include "miniz.h"
@@ -47,7 +47,9 @@ struct config
 	int shader = 3;               // 0 sharp, 1 smooth, 2 scanlines, 3 CRT, 4 CRT curved
 	view_scaling scaling = view_scaling::fit;     // F5: integer, fit, smooth (view.h)
 	float scan_strength = 0.6f;
-	int side_fill = 0;            // F8: beside a 4:3 picture on a wider screen: 0 black, 1 blurred picture, 2 bezel.png
+	int side_fill = 0;            // F8: around a 4:3 picture on a wider screen: 0 black, 1 blurred picture, 2 an overlay
+	std::string overlay;          // name of the chosen overlay (overlays/ in the data folder)
+	float overlay_opacity = 1.0f; // of overlays with a transparent opening
 	view_shape shape = view_shape::original;      // F7: original 4:3, widescreen, stretch (view.h)
 	bool use_opengl = true;
 	float volume = 0.8f;
@@ -86,7 +88,7 @@ static void save_config(const std::string &path, config &c)
 	f << "# NBA JAM Recomp - configuration\n[general]\n# news=1 asks github.com once at start for the latest release (only to tell you; nothing is downloaded)\nnews=" << c.news << "\n\n[video]\n# scale: size of the window in multiples of 400x300; 0 = chosen from the screen size\nscale=" << c.scale << "\nfullscreen=" << c.fullscreen
 	  << "\n# shader: 0 sharp, 1 smooth, 2 scanlines, 3 CRT, 4 curved CRT\nshader=" << c.shader
 	  << "\n# view: original (4:3) or stretch (fills the window, distorted). A true widescreen view does not exist yet.\nview=" << view_shape_id(c.shape)
-	  << "\n# scaling: integer (whole multiples of the game's lines), fit (fills the height, crisp pixels), smooth (fills the height, filtered)\nscaling=" << view_scaling_id(c.scaling) << "\n# side_fill: what is shown beside a 4:3 picture on a wider screen: black, blur (the picture, blurred and dimmed), bezel (bezel.png in the data folder)\nside_fill=" << (c.side_fill == 1 ? "blur" : c.side_fill == 2 ? "bezel" : "black") << "\nscanline_strength=" << c.scan_strength
+	  << "\n# scaling: integer (whole multiples of the game's lines), fit (fills the height, crisp pixels), smooth (fills the height, filtered)\nscaling=" << view_scaling_id(c.scaling) << "\n# side_fill: around a 4:3 picture on a wider screen: black, blur (the picture, blurred and dimmed), overlay (an image from overlays/ in the data folder)\nside_fill=" << (c.side_fill == 1 ? "blur" : c.side_fill == 2 ? "overlay" : "black") << "\noverlay=" << c.overlay << "\n# overlay_opacity: 0.1 to 1, for overlays with a transparent opening\noverlay_opacity=" << c.overlay_opacity << "\nscanline_strength=" << c.scan_strength
 	  << "\n# opengl=0 uses the basic SDL renderer (no shaders)\nopengl=" << c.use_opengl
 	  << "\n\n[audio]\nvolume=" << c.volume
 	  << "\n\n[network]\nport=" << c.net_port << "\ninput_delay=" << c.net_delay << "\nlast_host=" << c.net_host
@@ -128,7 +130,9 @@ static void load_config(const std::string &path, config &c)
 		else if (k == "shader") c.shader = std::clamp(atoi(v.c_str()), 0, kNumShaders - 1);
 		else if (k == "view") { view_shape_from_id(v.c_str(), c.shape); have_view = true; }
 		else if (k == "scaling") view_scaling_from_id(v.c_str(), c.scaling);
-		else if (k == "side_fill") c.side_fill = v == "blur" ? 1 : v == "bezel" ? 2 : 0;
+		else if (k == "side_fill") { c.side_fill = v == "blur" ? 1 : (v == "overlay" || v == "bezel") ? 2 : 0; if (v == "bezel" && c.overlay.empty()) c.overlay = "bezel"; }
+		else if (k == "overlay") c.overlay = v;
+		else if (k == "overlay_opacity") c.overlay_opacity = std::clamp(float(atof(v.c_str())), 0.1f, 1.0f);
 		// settings of versions before W1. aspect= becomes the nearest new shape unless view= is there.
 		// integer_scale= is not carried over: it was the old default, and Fit is the new one.
 		else if (k == "aspect") old_aspect = std::clamp(atoi(v.c_str()), 0, 3);
@@ -269,6 +273,10 @@ private:
 		            : compute_view(win_w, win_h, w, h, view_shape::original, view_scaling::fit);
 	}
 	void say_view(bool scaling_changed);
+	// overlays / borders (overlay.h)
+	std::vector<overlay_entry> m_overlays;
+	bool use_overlay(const std::string &name);   // loads it into the presenter; false if it is not there or unreadable
+	void next_side_fill();
 	void save_screenshot(const u32 *px, int w, int h);
 	std::string net_mod_block(const std::string &game_id);
 	void refresh_availability();
@@ -410,6 +418,46 @@ void app::say_view(bool scaling_changed)
 		if (m_cfg.shape == view_shape::stretch) s += " (picture is distorted)";
 	}
 	message(s, 4000);
+}
+
+bool app::use_overlay(const std::string &name)
+{
+	if (!m_gl.ok()) return false;
+	for (const auto &e : m_overlays)
+		if (e.name == name)
+		{
+			std::vector<u8> rgba;
+			int w = 0, h = 0;
+			std::string err;
+			if (!load_overlay(e, rgba, w, h, err)) { SDL_Log("overlay %s: %s", e.name.c_str(), err.c_str()); return false; }
+			m_gl.set_overlay(rgba.data(), w, h);
+			return true;
+		}
+	return false;
+}
+
+// F8: black -> blurred picture -> each overlay in overlays/ -> black. An overlay that cannot
+// be read is skipped with a message in the log.
+void app::next_side_fill()
+{
+	if (!m_gl.ok()) { m_cfg.side_fill = 0; message("Sides: need OpenGL (black)", 4000); return; }
+	m_overlays = list_overlays(m_base);          // pick up files added while the program runs
+	size_t at = m_overlays.size();
+	if (m_cfg.side_fill == 2)
+		for (size_t i = 0; i < m_overlays.size(); i++) if (m_overlays[i].name == m_cfg.overlay) at = i;
+	if (m_cfg.side_fill == 0) { m_cfg.side_fill = 1; message("Sides: blurred picture", 3000); return; }
+	for (size_t i = m_cfg.side_fill == 1 ? 0 : at + 1; i < m_overlays.size(); i++)
+		if (use_overlay(m_overlays[i].name))
+		{
+			m_cfg.side_fill = 2;
+			m_cfg.overlay = m_overlays[i].name;
+			message("Overlay: " + m_cfg.overlay.substr(0, 38), 3000);
+			return;
+		}
+	bool none = m_overlays.empty();
+	m_cfg.side_fill = 0;
+	m_gl.set_overlay(nullptr, 0, 0);
+	message(none ? "Sides: black (no images in overlays/)" : "Sides: black", none ? 5000 : 3000);
 }
 
 void app::present(const u32 *pixels, int w, int h, bool game)
@@ -556,10 +604,7 @@ void app::poll_events()
 				}
 				if (k == SDLK_F8)
 				{
-					m_cfg.side_fill = (m_cfg.side_fill + 1) % 3;
-					if (m_cfg.side_fill == 2 && !m_gl.has_bezel()) message("Sides: bezel (no bezel.png in the data folder: black)", 5000);
-					else if (!m_gl.ok() && m_cfg.side_fill) message("Sides: needs OpenGL (black)", 4000);
-					else message(std::string("Sides: ") + (m_cfg.side_fill == 1 ? "blurred picture" : m_cfg.side_fill == 2 ? "bezel image" : "black"), 3000);
+					next_side_fill();
 				}
 				if (k == SDLK_F7)
 				{
@@ -705,7 +750,7 @@ void app::draw_overlay(canvas &cv)
 		line("F5   scaling: integer/fit/smooth", 0xffa0e0ff);
 		line("F6   scanline strength", 0xffa0e0ff);
 		line("F7   shape: original 4:3 / stretch", 0xffa0e0ff);
-		line("F8   sides: black / blur / bezel", 0xffa0e0ff);
+		line("F8   sides: black / blur / overlays", 0xffa0e0ff);
 		line("F11  fullscreen            - / +  volume", 0xffa0e0ff);
 		line("F12  screenshot            9  service credit", 0xffa0e0ff);
 		y += 3;
@@ -1669,17 +1714,10 @@ int app::run()
 	m_profiles.init(m_base);
 
 	open_window();
-	{
-		// the user's bezel for the side fill (W1.5): bezel.png in the data folder, if there is one
-		std::vector<u8> file, rgba;
-		int bw = 0, bh = 0;
-		std::string err;
-		if (m_gl.ok() && read_whole_file(path_join(m_base, "bezel.png"), file))
-		{
-			if (png_decode(file, rgba, bw, bh, err)) m_gl.set_bezel(rgba.data(), bw, bh);
-			else SDL_Log("bezel.png: %s", err.c_str());
-		}
-	}
+	// overlays / borders: what is in overlays/ in the data folder, and the one chosen last time
+	m_overlays = list_overlays(m_base);
+	m_gl.set_overlay_opacity(m_cfg.overlay_opacity);
+	if (m_cfg.side_fill == 2 && !use_overlay(m_cfg.overlay)) m_cfg.side_fill = 0;
 	SDL_StopTextInput();
 	SDL_AudioSpec want{}, have{};
 	want.freq = 48000;

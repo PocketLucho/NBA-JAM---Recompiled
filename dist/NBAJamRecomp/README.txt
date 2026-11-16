@@ -79,7 +79,7 @@ CONTROLS (keyboard)
   F5   scaling: Fit -> Smooth -> Integer
   F6   scanline strength
   F7   shape: Original 4:3 -> Stretch
-  F8   sides of a 4:3 picture on a wide screen: black -> blurred picture -> bezel
+  F8   around the 4:3 picture on a wide screen: black -> blurred picture -> overlays
   F11  fullscreen (or Alt+Enter)
   F12  screenshot (PNG in the screenshots\ folder; Print Screen works too)
   P    pause                         - / +  volume
@@ -104,10 +104,10 @@ VIDEO (shaders)
     Stretch      fills the whole window; the picture is distorted
   A true widescreen view (more of the court, nothing stretched) does not exist
   yet: the games draw a 4:3 picture.
-  Sides (F8): what is shown beside a 4:3 picture on a wider screen: black, the
-  picture itself blurred and dimmed, or your own image. For your own image put a
-  PNG called bezel.png in the data folder (About shows where that is); it is
-  stretched over the whole screen and the game is drawn on top of it.
+  Sides (F8): what is shown around a 4:3 picture on a wider screen: black, the
+  picture itself blurred and dimmed, or an overlay (border) from the overlays\
+  folder, as in RetroArch. Two are included; overlays\README.txt explains how to
+  add your own PNGs or RetroArch border overlays (.cfg + .png).
     Sharp        clean pixels at any size
     Smooth       bilinear filtering
     Scanlines    dark gaps between lines; F6 changes the strength
@@ -136,6 +136,7 @@ ONLINE PLAY
 FOLDERS
 -------
   roms\         your ROMs / ZIPs (see above)
+  overlays\     borders shown around the picture (F8)
   saves\        each game's NVRAM
   screenshots\  screenshots (F12)
   data\         (optional) games you built with tools/build_roms.sh

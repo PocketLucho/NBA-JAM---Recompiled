@@ -10,6 +10,7 @@ pkg=$stage/NBAJamRecomp
 mkdir -p "$pkg" "$out"
 cp "$root"/dist/NBAJamRecomp/README.txt "$pkg/"
 cp -r "$root"/dist/NBAJamRecomp/mods "$pkg/mods"
+cp -r "$root"/dist/NBAJamRecomp/overlays "$pkg/overlays"
 mkdir -p "$pkg/roms"; cp "$root"/dist/NBAJamRecomp/roms/README.txt "$pkg/roms/"
 # the archives are the portable form: settings, saves and roms stay in the unpacked folder.
 # (The installers of R3 leave this file out and use the per-user folder.)
