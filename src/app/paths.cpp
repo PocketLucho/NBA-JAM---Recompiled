@@ -33,7 +33,7 @@ app_paths resolve_paths(const std::string &exe_dir, const std::string &user_dir,
 const std::vector<std::string> &user_data_items()
 {
 	static const std::vector<std::string> items = {
-		"nbajam_recomp.ini", "mods.ini", "saves", "screenshots", "controller_profiles", "replays", "mods", "roms", "data",
+		"nbajam_recomp.ini", "mods.ini", "saves", "screenshots", "controller_profiles", "replays", "mods", "roms", "data", "overlays", "bezel.png",
 	};
 	return items;
 }
@@ -128,13 +128,14 @@ void seed_data_dir(const app_paths &p)
 	fs::create_directories(to / "mods", ec);
 	// shipped scripts and read-me files, only those the user does not have (never overwrite:
 	// the user may have edited a script)
-	for (const char *d : { "mods", "roms" })
+	fs::create_directories(to / "overlays", ec);
+	for (const char *d : { "mods", "roms", "overlays" })
 	{
 		if (!fs::is_directory(from / d, ec)) continue;
 		for (auto it = fs::directory_iterator(from / d, ec); !ec && it != fs::directory_iterator(); it.increment(ec))
 		{
 			std::string ext = S(it->path().extension());
-			if (!it->is_regular_file(ec) || (ext != ".lua" && ext != ".txt")) continue;
+			if (!it->is_regular_file(ec) || (ext != ".lua" && ext != ".txt" && ext != ".png" && ext != ".cfg")) continue;
 			fs::path dst = to / d / it->path().filename();
 			if (!fs::exists(dst, ec)) fs::copy_file(it->path(), dst, ec);
 		}

@@ -18,12 +18,16 @@
 //       mask must be the same share of the screen at every size.
 //
 //   viewtest --fills <out_dir>
-//       The three side fills (black, blurred picture, bezel image) on a 2560x1080 window (W1.5).
+//       The side fills on a 2560x1080 window (W1.5): black, blurred picture, an opaque image
+//       behind the game, and a border with a transparent opening over it (RetroArch style).
 //
 // Test pattern, 400 x 254: white one-pixel frame (the edges of the picture), one-pixel
 // vertical and horizontal stripes (uneven scaling shows as moire), a circle that must stay
 // round in 4:3, colour bars, and a centre cross.
 #include "view.h"
+#include "overlay.h"
+#include <filesystem>
+#include <fstream>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -100,6 +104,40 @@ static int rects()
 	check(view_scaling_from_id("fit", c) && c == view_scaling::fit && !view_scaling_from_id("", c), "scaling ids");
 	check(view_shape_from_old_aspect(0) == view_shape::original && view_shape_from_old_aspect(1) == view_shape::stretch &&
 	      view_shape_from_old_aspect(2) == view_shape::stretch && view_shape_from_old_aspect(3) == view_shape::stretch, "old aspect= values map to the nearest new shape");
+	// overlays folder (overlay.h): PNGs, RetroArch .cfg files, the old bezel.png
+	{
+		namespace fs = std::filesystem;
+		fs::path d = fs::temp_directory_path() / "nbajam_overlaytest";
+		fs::remove_all(d);
+		fs::create_directories(d / "overlays" / "sub");
+		auto put = [](const fs::path &f, const std::string &t) { std::ofstream(f, std::ios::binary) << t; };
+		put(d / "overlays" / "zeta.png", "x");
+		put(d / "overlays" / "Alpha.PNG", "x");
+		put(d / "overlays" / "border_img.png", "x");
+		put(d / "overlays" / "notes.txt", "x");
+		put(d / "overlays" / "retro.cfg", "overlays = 1\n# comment\noverlay0_overlay = \"border_img.png\"\noverlay0_full_screen = true\noverlay0_descs = 0\n");
+		put(d / "overlays" / "sub" / "deep.png", "x");
+		put(d / "overlays" / "insub.cfg", "overlay0_overlay = sub/deep.png\n");
+		put(d / "overlays" / "escape.cfg", "overlay0_overlay = \"../../secret.png\"\n");
+		put(d / "overlays" / "missing.cfg", "overlay0_overlay = \"not_there.png\"\n");
+		put(d / "overlays" / "empty.cfg", "input_overlay_opacity = 0.5\n");
+		put(d / "bezel.png", "x");
+		auto list = list_overlays(d.string());
+		std::string names;
+		for (auto &e : list) names += e.name + " ";
+		check(names == "Alpha bezel insub retro zeta ", "overlays are listed by name, PNG and .cfg, without the text file (got: " + names + ")");
+		bool once = true;
+		for (auto &e : list) if (e.name == "border_img") once = false;
+		check(once, "a PNG that a .cfg stands for is listed once, under the .cfg's name");
+		for (auto &e : list) if (e.name == "retro") check(fs::path(e.image).filename() == "border_img.png", "a RetroArch .cfg gives its overlay0 image");
+		for (auto &e : list) if (e.name == "insub") check(fs::path(e.image).filename() == "deep.png", "an image in a sub-folder of the .cfg is found");
+		check(overlay_image_from_cfg((d / "overlays" / "escape.cfg").string()).empty(), "a .cfg cannot point outside its folder");
+		check(overlay_image_from_cfg((d / "overlays" / "empty.cfg").string()).empty(), "a .cfg without an overlay image is not an overlay");
+		check(list_overlays((d / "nowhere").string()).empty(), "no overlays folder: an empty list");
+		std::vector<uint8_t> rgba; int ow, oh; std::string err;
+		check(!load_overlay(list[0], rgba, ow, oh, err) && !err.empty(), "a file that is not a PNG is refused with a reason");
+		fs::remove_all(d);
+	}
 	printf("\n%d checks, %d failed\n", g_run, g_fail);
 	return g_fail ? 1 : 0;
 }
@@ -148,7 +186,9 @@ static bool write_png(const std::string &path, const std::vector<uint8_t> &rgb, 
 }
 
 // one frame at one window size; returns false if the window or OpenGL could not be had
-// side: 0 black, 1 blur, 2 bezel (a plain colour image made here, written and read back as a PNG)
+// side: 0 black, 1 blur, 2 an opaque 16:9 image (behind the game), 3 a 16:9 border with a
+// transparent opening (over the game). The images are made here and go through the PNG
+// writer and reader.
 static bool shoot(int W, int H, view_shape sh, view_scaling sc, int shader, const std::string &out, int side = 0)
 {
 	SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 2);
@@ -162,35 +202,39 @@ static bool shoot(int W, int H, view_shape sh, view_scaling sc, int shader, cons
 	int ww, wh;
 	gl.drawable_size(ww, wh);
 	std::string tag = std::to_string(W) + "x" + std::to_string(H) + " " + view_shape_id(sh) + " " + view_scaling_id(sc) + " shader " + std::to_string(shader);
-	static const char *side_name[3] = { "", " sides:blur", " sides:bezel" };
+	static const char *side_name[4] = { "", " sides:blur", " sides:image", " sides:border" };
 	tag += side_name[side];
-	if (side == 2)
+	const int bw = 160, bh = 90;          // 16:9; the 4:3 opening is columns 20..139
+	if (side >= 2)
 	{
-		// a 64 x 36 bezel: dark green with a lighter 4-pixel rim; through the PNG writer and reader
-		const int bw = 64, bh = 36;
-		std::vector<uint8_t> img(size_t(bw) * bh * 3), file, rgba;
+		// dark green with a lighter 4-pixel rim. The border (side 3) is transparent in the
+		// opening, except for 2 columns at each side of it, which overlap the game picture.
+		const int chn = side == 3 ? 4 : 3;
+		std::vector<uint8_t> img(size_t(bw) * bh * chn), file, rgba;
 		for (int y = 0; y < bh; y++) for (int x = 0; x < bw; x++)
 		{
 			bool rim = x < 4 || y < 4 || x >= bw - 4 || y >= bh - 4;
-			uint8_t *p = &img[(size_t(y) * bw + x) * 3];
+			uint8_t *p = &img[(size_t(y) * bw + x) * chn];
 			p[0] = rim ? 40 : 10; p[1] = rim ? 160 : 80; p[2] = rim ? 60 : 30;
+			if (chn == 4) p[3] = (x >= 22 && x < 138) ? 0 : 255;
 		}
 		size_t len = 0;
-		void *png = tdefl_write_image_to_png_file_in_memory(img.data(), bw, bh, 3, &len);
+		void *png = tdefl_write_image_to_png_file_in_memory(img.data(), bw, bh, chn, &len);
 		file.assign(static_cast<uint8_t *>(png), static_cast<uint8_t *>(png) + len);
 		mz_free(png);
 		int rw = 0, rh = 0;
 		std::string perr;
 		bool okp = png_decode(file, rgba, rw, rh, perr);
-		check(okp && rw == bw && rh == bh && rgba[0] == 40 && rgba[1] == 160 && rgba[(size_t(18) * bw + 32) * 4 + 1] == 80, tag + ": bezel PNG read back (" + perr + ")");
-		if (okp) gl.set_bezel(rgba.data(), rw, rh);
+		check(okp && rw == bw && rh == bh && rgba[0] == 40 && rgba[1] == 160 && rgba[(size_t(45) * bw + 10) * 4 + 1] == 80, tag + ": image read back from PNG (" + perr + ")");
+		if (side == 3 && okp) check(rgba[(size_t(45) * bw + 80) * 4 + 3] == 0 && rgba[(size_t(45) * bw + 10) * 4 + 3] == 255, tag + ": transparency read back");
+		if (okp) gl.set_overlay(rgba.data(), rw, rh);
 	}
 	check(ww == W && wh == H, tag + ": the window has the size asked for (got " + std::to_string(ww) + "x" + std::to_string(wh) + ")");
 	view_rect r = compute_view(ww, wh, kW, kH, sh, sc);
 	std::vector<uint32_t> px = pattern();
 	std::vector<uint8_t> rgb;
 	int cw = 0, ch = 0;
-	for (int i = 0; i < 2; i++) gl.present(px.data(), kW, kH, shader, r, 0.6f, false, side);   // twice: the first frame also creates the texture
+	for (int i = 0; i < 2; i++) gl.present(px.data(), kW, kH, shader, r, 0.6f, false, side == 3 ? 2 : side);   // twice: the first frame also creates the texture
 	bool got = gl.capture(rgb, cw, ch);
 	gl.swap();
 	check(got && cw == ww && ch == wh, tag + ": frame read back");
@@ -202,7 +246,7 @@ static bool shoot(int W, int H, view_shape sh, view_scaling sc, int shader, cons
 		{
 			// the white frame of the pattern sits exactly on the edges of the rectangle
 			check(lum(mx, r.y) > 150 && lum(mx, r.y + r.h - 1) > 150, tag + ": top and bottom edge of the picture are where compute_view said");
-			check(lum(r.x, my) > 150 && lum(r.x + r.w - 1, my) > 150, tag + ": left and right edge too");
+			if (side != 3) check(lum(r.x, my) > 150 && lum(r.x + r.w - 1, my) > 150, tag + ": left and right edge too");   // a border may cover the picture edge on purpose
 		}
 		if (r.y > 0 && side == 0) check(lum(mx, r.y - 1) < 10 && lum(mx, r.y + r.h) < 10, tag + ": black above and below the picture");
 		if (r.x > 0 && side == 0) check(lum(r.x - 1, my) < 10 && lum(r.x + r.w, my) < 10, tag + ": black left and right of the picture");
@@ -214,12 +258,26 @@ static bool shoot(int W, int H, view_shape sh, view_scaling sc, int shader, cons
 			check(inside > 200, tag + ": the picture itself is not dimmed");
 			check(lum(4, 4) > 0 || lum(sx, wh / 2) > 3, tag + ": the fill reaches the window edge");
 		}
-		if (r.x > 8 && side == 2)
+		if (r.x > 8 && side >= 2)
 		{
-			const uint8_t *e = &rgb[(size_t(wh / 2) * cw + r.x / 2) * 3], *rim = &rgb[(size_t(wh / 2) * cw + 2) * 3];
-			check(std::abs(e[0] - 10) < 6 && std::abs(e[1] - 80) < 6 && std::abs(e[2] - 30) < 6, tag + ": bezel colour beside the picture");
-			check(rim[1] > 120, tag + ": bezel rim at the window edge (the image is stretched over the whole window)");
-			check(lum(mx, r.y) > 150, tag + ": the picture is drawn over the bezel");
+			// the image is as high as the window, keeps its 16:9 shape and is centred
+			int ox, ow;
+			gl_presenter::overlay_rect(ww, wh, bw, bh, ox, ow);
+			check(ow == int(wh * 16.0 / 9.0 + 0.5) && ox == (ww - ow) / 2, tag + ": image is as high as the window, 16:9, centred");
+			auto px3 = [&](int x, int y) { return &rgb[(size_t(y) * cw + x) * 3]; };
+			auto is_body = [&](const uint8_t *e) { return std::abs(e[0] - 10) < 8 && std::abs(e[1] - 80) < 8 && std::abs(e[2] - 30) < 8; };
+			int k = ow / bw;                                           // window pixels per image pixel
+			check(is_body(px3(ox + 12 * k, wh / 2)), tag + ": image colour beside the picture");
+			check(px3(ox + k, wh / 2)[1] > 120, tag + ": image rim at the image's own edge");
+			if (ox > 4) check(lum(ox / 2, wh / 2) < 10, tag + ": black beyond the image on a screen wider than it");
+			check(lum(mx, r.y + r.h * 127 / 254) > 150, tag + ": the game shows in the middle (the white cross)");
+			if (side == 2) check(lum(r.x, my) > 150, tag + ": opaque image is behind the game (picture edge visible)");
+			if (side == 3)
+			{
+				// the border's opening is 2 image columns narrower than the picture at each side: there the border covers the game
+				check(is_body(px3(r.x + k, my)) && is_body(px3(r.x + r.w - 1 - k, my)), tag + ": border is drawn over the game where they overlap");
+				check(!is_body(px3(r.x + 3 * k, my)), tag + ": and not inside its opening");
+			}
 		}
 		if (shader == 3)
 		{
@@ -296,11 +354,14 @@ int main(int argc, char **argv)
 	}
 	else if (argc == 3 && !strcmp(argv[1], "--fills"))
 	{
-		static const char *names[3] = { "black", "blur", "bezel" };
-		for (int side = 0; side < 3; side++)
+		static const char *names[4] = { "black", "blur", "image", "border" };
+		for (int side = 0; side < 4; side++)
 			ok = shoot(2560, 1080, view_shape::original, view_scaling::fit, 0, std::string(argv[2]) + "/2560x1080_sides_" + names[side] + ".png", side) && ok;
 		// a 4:3 window has no sides: the fill must not show, and nothing must break
 		ok = shoot(1024, 768, view_shape::original, view_scaling::fit, 0, "", 1) && ok;
+		// the same border on 16:9 and on 32:9: the opening lines up with the picture on both
+		ok = shoot(1920, 1080, view_shape::original, view_scaling::fit, 0, std::string(argv[2]) + "/1920x1080_sides_border.png", 3) && ok;
+		ok = shoot(5120, 1440, view_shape::original, view_scaling::fit, 0, std::string(argv[2]) + "/5120x1440_sides_border.png", 3) && ok;
 	}
 	else if (argc == 7)
 	{

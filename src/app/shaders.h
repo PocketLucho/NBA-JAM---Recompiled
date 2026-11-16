@@ -164,6 +164,16 @@ void main()
 }
 )GLSL";
 
+// overlay / border image (like a RetroArch overlay): drawn over the whole frame with its own
+// transparency; u_opt = opacity.
+static const char *kOverlay = R"GLSL(
+void main()
+{
+	vec4 c = texture2D(u_tex, v_uv);
+	gl_FragColor = vec4(c.rgb, c.a * u_opt);
+}
+)GLSL";
+
 static const shader_def kShaders[] = {
 	{ "Sharp", kSharp },
 	{ "Smooth", kSmooth },
