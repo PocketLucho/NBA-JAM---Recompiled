@@ -3,6 +3,7 @@
 #include "version.h"
 #include "paths.h"
 #include "news.h"
+#include "png_read.h"
 #include "games.h"
 #include "font.h"
 #include "miniz.h"
@@ -39,13 +40,14 @@ struct key_map
 
 struct config
 {
-	int scale = 3;
+	int scale = 0;                // window size in multiples of 400x300; 0 = from the screen size
 	bool fullscreen = false;
 	bool smooth = false;          // legacy (SDL renderer fallback)
 	bool scanlines = false;       // legacy
 	int shader = 3;               // 0 sharp, 1 smooth, 2 scanlines, 3 CRT, 4 CRT curved
 	view_scaling scaling = view_scaling::fit;     // F5: integer, fit, smooth (view.h)
 	float scan_strength = 0.6f;
+	int side_fill = 0;            // F8: beside a 4:3 picture on a wider screen: 0 black, 1 blurred picture, 2 bezel.png
 	view_shape shape = view_shape::original;      // F7: original 4:3, widescreen, stretch (view.h)
 	bool use_opengl = true;
 	float volume = 0.8f;
@@ -81,10 +83,10 @@ static SDL_Scancode *key_slot(key_map &k, int i)
 static void save_config(const std::string &path, config &c)
 {
 	std::ofstream f(path);
-	f << "# NBA JAM Recomp - configuration\n[general]\n# news=1 asks github.com once at start for the latest release (only to tell you; nothing is downloaded)\nnews=" << c.news << "\n\n[video]\nscale=" << c.scale << "\nfullscreen=" << c.fullscreen
+	f << "# NBA JAM Recomp - configuration\n[general]\n# news=1 asks github.com once at start for the latest release (only to tell you; nothing is downloaded)\nnews=" << c.news << "\n\n[video]\n# scale: size of the window in multiples of 400x300; 0 = chosen from the screen size\nscale=" << c.scale << "\nfullscreen=" << c.fullscreen
 	  << "\n# shader: 0 sharp, 1 smooth, 2 scanlines, 3 CRT, 4 curved CRT\nshader=" << c.shader
 	  << "\n# view: original (4:3), widescreen (more court on games that support it, otherwise 4:3), stretch (fills the window)\nview=" << view_shape_id(c.shape)
-	  << "\n# scaling: integer (whole multiples of the game's lines), fit (fills the height, crisp pixels), smooth (fills the height, filtered)\nscaling=" << view_scaling_id(c.scaling) << "\nscanline_strength=" << c.scan_strength
+	  << "\n# scaling: integer (whole multiples of the game's lines), fit (fills the height, crisp pixels), smooth (fills the height, filtered)\nscaling=" << view_scaling_id(c.scaling) << "\n# side_fill: what is shown beside a 4:3 picture on a wider screen: black, blur (the picture, blurred and dimmed), bezel (bezel.png in the data folder)\nside_fill=" << (c.side_fill == 1 ? "blur" : c.side_fill == 2 ? "bezel" : "black") << "\nscanline_strength=" << c.scan_strength
 	  << "\n# opengl=0 uses the basic SDL renderer (no shaders)\nopengl=" << c.use_opengl
 	  << "\n\n[audio]\nvolume=" << c.volume
 	  << "\n\n[network]\nport=" << c.net_port << "\ninput_delay=" << c.net_delay << "\nlast_host=" << c.net_host
@@ -119,13 +121,14 @@ static void load_config(const std::string &path, config &c)
 		std::string k = trim(line.substr(0, eq)), v = trim(line.substr(eq + 1));
 		if (k == "language") continue;       // from older versions: the program is English only for now
 		else if (k == "news") c.news = atoi(v.c_str()) != 0;
-		else if (k == "scale") c.scale = std::clamp(atoi(v.c_str()), 1, 8);
+		else if (k == "scale") c.scale = std::clamp(atoi(v.c_str()), 0, 8);
 		else if (k == "fullscreen") c.fullscreen = atoi(v.c_str()) != 0;
 		else if (k == "smooth") c.smooth = atoi(v.c_str()) != 0;
 		else if (k == "scanlines") c.scanlines = atoi(v.c_str()) != 0;
 		else if (k == "shader") c.shader = std::clamp(atoi(v.c_str()), 0, kNumShaders - 1);
 		else if (k == "view") { view_shape_from_id(v.c_str(), c.shape); have_view = true; }
 		else if (k == "scaling") view_scaling_from_id(v.c_str(), c.scaling);
+		else if (k == "side_fill") c.side_fill = v == "blur" ? 1 : v == "bezel" ? 2 : 0;
 		// settings of versions before W1. aspect= becomes the nearest new shape unless view= is there.
 		// integer_scale= is not carried over: it was the old default, and Fit is the new one.
 		else if (k == "aspect") old_aspect = std::clamp(atoi(v.c_str()), 0, 3);
@@ -352,7 +355,15 @@ void app::refresh_availability()
 
 void app::open_window()
 {
-	int w = 400 * m_cfg.scale, h = 300 * m_cfg.scale;
+	// window size: the saved multiple, or (0) about three quarters of the screen height, so the
+	// window is not tiny on a 4K screen (W1.4)
+	int scale = m_cfg.scale;
+	if (scale <= 0)
+	{
+		SDL_DisplayMode dm{};
+		scale = SDL_GetDesktopDisplayMode(0, &dm) == 0 ? std::clamp(dm.h * 3 / 4 / 300, 2, 8) : 3;
+	}
+	int w = 400 * scale, h = 300 * scale;
 	Uint32 fs = m_cfg.fullscreen ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0;
 	if (m_cfg.use_opengl)
 	{
@@ -409,7 +420,7 @@ void app::present(const u32 *pixels, int w, int h, bool game)
 	{
 		int ww, wh;
 		m_gl.drawable_size(ww, wh);
-		m_gl.present(pixels, w, h, shader, view_for(ww, wh, w, h, game), m_cfg.scan_strength);
+		m_gl.present(pixels, w, h, shader, view_for(ww, wh, w, h, game), m_cfg.scan_strength, true, m_cfg.side_fill);
 		return;
 	}
 	bool smooth = shader == 1 || (game && m_cfg.scaling == view_scaling::smooth);
@@ -542,6 +553,13 @@ void app::poll_events()
 				{
 					m_cfg.scaling = view_scaling((int(m_cfg.scaling) + 1) % 3);
 					say_view(true);
+				}
+				if (k == SDLK_F8)
+				{
+					m_cfg.side_fill = (m_cfg.side_fill + 1) % 3;
+					if (m_cfg.side_fill == 2 && !m_gl.has_bezel()) message("Sides: bezel (no bezel.png in the data folder: black)", 5000);
+					else if (!m_gl.ok() && m_cfg.side_fill) message("Sides: needs OpenGL (black)", 4000);
+					else message(std::string("Sides: ") + (m_cfg.side_fill == 1 ? "blurred picture" : m_cfg.side_fill == 2 ? "bezel image" : "black"), 3000);
 				}
 				if (k == SDLK_F7)
 				{
@@ -681,6 +699,7 @@ void app::draw_overlay(canvas &cv)
 		line("F5   scaling: integer/fit/smooth", 0xffa0e0ff);
 		line("F6   scanline strength", 0xffa0e0ff);
 		line("F7   shape: 4:3 / widescreen / stretch", 0xffa0e0ff);
+		line("F8   sides: black / blur / bezel", 0xffa0e0ff);
 		line("F11  fullscreen            - / +  volume", 0xffa0e0ff);
 		line("F12  screenshot            9  service credit", 0xffa0e0ff);
 		y += 3;
@@ -1626,6 +1645,9 @@ void app::choose_data_folder()
 int app::run()
 {
 	SDL_SetHint(SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS, "1");
+	// Windows: draw at the real resolution of each monitor instead of being enlarged by the
+	// system at 150% or 200% display scaling (W1.4)
+	SDL_SetHint("SDL_WINDOWS_DPI_AWARENESS", "permonitorv2");
 	SDL_Log("%s", app_version_line().c_str());
 	if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_GAMECONTROLLER) != 0)
 	{
@@ -1641,6 +1663,17 @@ int app::run()
 	m_profiles.init(m_base);
 
 	open_window();
+	{
+		// the user's bezel for the side fill (W1.5): bezel.png in the data folder, if there is one
+		std::vector<u8> file, rgba;
+		int bw = 0, bh = 0;
+		std::string err;
+		if (m_gl.ok() && read_whole_file(path_join(m_base, "bezel.png"), file))
+		{
+			if (png_decode(file, rgba, bw, bh, err)) m_gl.set_bezel(rgba.data(), bw, bh);
+			else SDL_Log("bezel.png: %s", err.c_str());
+		}
+	}
 	SDL_StopTextInput();
 	SDL_AudioSpec want{}, have{};
 	want.freq = 48000;

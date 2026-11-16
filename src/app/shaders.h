@@ -1,7 +1,8 @@
 // shaders.h - GLSL 1.10 / GLSL ES 1.00 shaders for the video output.
 // Each fragment shader gets:
 //   u_tex  source frame (GL_LINEAR), u_src source size in pixels,
-//   u_out  size of the output rectangle in window pixels, u_opt per-shader option.
+//   u_out  size of the output rectangle in window pixels, u_opt per-shader option,
+//   u_origin  left/bottom corner of that rectangle in window pixels.
 #pragma once
 
 static const char *kVertexShader = R"GLSL(
@@ -19,6 +20,7 @@ uniform sampler2D u_tex;
 uniform vec2 u_src;
 uniform vec2 u_out;
 uniform float u_opt;
+uniform vec2 u_origin;
 uniform float u_smooth;   // 1 = plain bilinear instead of crisp pixels (scaling "Smooth")
 varying vec2 v_uv;
 )GLSL";
@@ -132,8 +134,11 @@ void main()
 		float hard = mix(-11.0, -5.5, sqrt(luma));     // brighter = wider beam
 		col += c * exp2(hard * dy * dy);
 	}
-	// aperture grille (RGB stripes) at window resolution
-	float px = mod(floor(gl_FragCoord.x), 3.0);
+	// aperture grille (RGB stripes). The stripe width follows the output height, so the
+	// mask is as coarse at 4K as at 1080p instead of twice as fine (W1.3), and it is
+	// counted from the left edge of the picture, so it lines up wherever the picture sits.
+	float stripe = max(1.0, floor(u_out.y / 1080.0 + 0.5));
+	float px = mod(floor((gl_FragCoord.x - u_origin.x) / stripe), 3.0);
 	vec3 mask = vec3(0.70);
 	if (px < 0.5) mask.r = 1.30; else if (px < 1.5) mask.g = 1.30; else mask.b = 1.30;
 	col *= mask * 1.45;
@@ -142,6 +147,20 @@ void main()
 	float vig = pow(clamp(v.x * v.y * 18.0, 0.0, 1.0), 0.18 * u_opt);
 	col *= vig;
 	gl_FragColor = vec4(tosrgb(col), 1.0);
+}
+)GLSL";
+
+// side fill (W1.5): the picture itself, enlarged to cover the window, blurred and dimmed.
+// Drawn behind the picture; u_opt = brightness.
+static const char *kSideBlur = R"GLSL(
+void main()
+{
+	vec2 t = 3.0 / u_src;
+	vec3 c = vec3(0.0);
+	for (int j = -2; j <= 2; j++)
+		for (int i = -2; i <= 2; i++)
+			c += texture2D(u_tex, v_uv + vec2(float(i), float(j)) * t).rgb;
+	gl_FragColor = vec4(c / 25.0 * u_opt, 1.0);
 }
 )GLSL";
 
