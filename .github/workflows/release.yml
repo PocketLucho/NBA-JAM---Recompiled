@@ -1,1 +1,42 @@
+# Publishes a GitHub Release with the packages in releases/ every time they change on main
+# (or by hand: Actions -> Release -> Run workflow). The tag is the date: vYYYY.MM.DD.
+name: Release
 
+on:
+  push:
+    branches: [main]
+    paths: ['releases/**']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Version
+        id: v
+        run: echo "tag=v$(date -u +%Y.%m.%d)" >> "$GITHUB_OUTPUT"
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.v.outputs.tag }}
+        run: |
+          cat > notes.md <<'EOF'
+          **NBA JAM Recomp** for Windows x64 and Linux x64 (SteamOS included).
+
+          No game data is included: copy your own MAME romsets and/or the ZIPs of the public
+          source repositories into `roms/`. See `README.txt` / `LEEME.txt` inside the package.
+
+          - `NBAJamRecomp-windows-x64.zip` - Windows 10/11 64-bit
+          - `NBAJamRecomp-linux-x64.tar.gz` - x86-64 Linux, glibc 2.38+ (SteamOS, Ubuntu 24.04+...)
+
+          Created by Pocket_lucho with Claude (Anthropic). Support: https://buymeacoffee.com/pocket_lucho
+          EOF
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" releases/* --clobber
+          else
+            gh release create "$TAG" releases/* --target "$GITHUB_SHA" --title "NBA JAM Recomp ${TAG#v}" --notes-file notes.md --latest
+          fi
