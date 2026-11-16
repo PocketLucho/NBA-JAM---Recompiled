@@ -2,6 +2,7 @@
 #pragma once
 #include "machine.h"
 #include "romload.h"
+#include "rom_art.h"
 #include <memory>
 #include <string>
 #include <vector>
@@ -28,6 +29,8 @@ public:
 	// availability check (fast) and a human-readable reason when missing (in the UI language)
 	bool available(const game_info &g, std::string &why);
 	std::unique_ptr<arcade_machine> create(const game_info &g, std::string &err);
+	// program and graphics ROMs only, for the menus' art reader (rom_art.h); no sound needed
+	bool art_roms(const game_info &g, rom_art::roms &out);
 	std::string data_dir(const game_info &g) const;
 	bool uses_data_dir(const game_info &g) const;        // data/<id>/ holds an own build
 	void rescan() { m_pool = rom_pool(); m_pool_scanned = false; }

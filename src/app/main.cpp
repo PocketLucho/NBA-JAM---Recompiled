@@ -7,6 +7,7 @@
 #include "games.h"
 #include "ui/canvas.h"
 #include "ui/gallery.h"
+#include "ui/art_view.h"
 #include "ui/ui_sdl.h"
 #include "miniz.h"
 #include "gl_present.h"
@@ -188,9 +189,11 @@ class app
 public:
 	int run();
 	void show_gallery() { m_gallery = true; }      // --ui-gallery: the widget gallery instead of the menu
+	void show_rom_art() { m_rom_art = true; }      // --rom-art: what the art reader finds in the ROMs
 private:
-	bool m_gallery = false;
+	bool m_gallery = false, m_rom_art = false;
 	void gallery_loop();
+	void rom_art_loop();
 	enum class screen { menu, net_menu, net_lobby, game, about, mods, mod_detail, controls, news };
 
 	void open_window();
@@ -1683,6 +1686,52 @@ void app::gallery_loop()
 	}
 }
 
+// The test screen of the ROM art reader (roadmap U2.2): lettering, team logos and
+// backgrounds read from each game's ROMs, or the project lettering where there are none.
+// Left and right change game, up and down change page, Back leaves.
+void app::rom_art_loop()
+{
+	ui::input in;
+	ui::theme th;
+	std::map<int, rom_art::art_set> sets;       // read when a game is first shown
+	int game = m_sel, page = 0;
+	const int games = int(game_list().size());
+	while (true)
+	{
+		unsigned now = SDL_GetTicks();
+		SDL_Event e;
+		while (SDL_PollEvent(&e))
+		{
+			if (e.type == SDL_QUIT) return;
+			if (e.type == SDL_CONTROLLERDEVICEADDED) SDL_GameControllerOpen(e.cdevice.which);
+			if (e.type == SDL_KEYDOWN && (e.key.keysym.sym == SDLK_F12 || e.key.keysym.sym == SDLK_PRINTSCREEN)) { m_shot = true; continue; }
+			ui::raw_event raw;
+			if (ui::from_sdl(e, view_rect(), 1, 1, raw)) in.feed(raw, now);
+		}
+		in.tick(now);
+		if (!sets.count(game))
+		{
+			rom_art::roms roms;
+			sets[game] = m_cat->art_roms(game_list()[size_t(game)], roms) ? rom_art::read(roms) : rom_art::art_set();
+		}
+		const rom_art::art_set &set = sets[game];
+		ui::event ev;
+		while (in.next(ev))
+		{
+			if (ev.a == ui::act::back) return;
+			if (ev.a == ui::act::left) { game = (game + games - 1) % games; page = 0; }
+			if (ev.a == ui::act::right) { game = (game + 1) % games; page = 0; }
+			if (ev.a == ui::act::up) page = std::max(0, page - 1);
+			if (ev.a == ui::act::down) page = std::min(ui::art_pages(set) - 1, page + 1);
+		}
+		if (!sets.count(game)) continue;         // the game changed: read it first
+		canvas cv(ui::screen::kW, ui::screen::kH);
+		ui::draw_art_page(cv, th, game_list()[size_t(game)].title, sets[game], page, in.last_device());
+		present(cv.px.data(), cv.w, cv.h, false);
+		SDL_Delay(8);
+	}
+}
+
 int app::run()
 {
 	SDL_SetHint(SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS, "1");
@@ -1722,6 +1771,7 @@ int app::run()
 	for (size_t i = 0; i < m_avail.size(); i++) if (m_avail[i]) { m_sel = int(i); break; }
 
 	if (m_gallery) { gallery_loop(); m_quit = true; }
+	if (m_rom_art) { rom_art_loop(); m_quit = true; }
 
 	using clock = std::chrono::steady_clock;
 	auto next = clock::now();
@@ -1786,6 +1836,7 @@ int main(int argc, char **argv)
 	{
 		app a;
 		if (argc > 1 && std::string(argv[1]) == "--ui-gallery") a.show_gallery();
+		if (argc > 1 && std::string(argv[1]) == "--rom-art") a.show_rom_art();
 		return a.run();
 	}
 	catch (const std::exception &e)
