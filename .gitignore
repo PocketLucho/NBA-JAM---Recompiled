@@ -10,3 +10,4 @@ dist/NBAJamRecomp/screenshots/
 dist/NBAJamRecomp/nbajam_recomp.ini
 *.zip
 *.ppm
+!releases/*.zip
