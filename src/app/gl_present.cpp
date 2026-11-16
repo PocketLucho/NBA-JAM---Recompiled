@@ -76,7 +76,8 @@ typedef void GLvoid;
 	F(void, glUniform2f, (GLint, GLfloat, GLfloat)) \
 	F(void, glVertexAttribPointer, (GLuint, GLint, GLenum, GLboolean, GLsizei, const GLvoid *)) \
 	F(void, glEnableVertexAttribArray, (GLuint)) \
-	F(void, glActiveTexture, (GLenum))
+	F(void, glActiveTexture, (GLenum)) \
+	F(void, glReadPixels, (GLint, GLint, GLsizei, GLsizei, GLenum, GLenum, GLvoid *))
 
 #define F(ret, name, args) typedef ret (APIENTRY *PFN_##name) args; static PFN_##name p_##name;
 GLFUNCS
@@ -84,32 +85,10 @@ GLFUNCS
 
 static bool load_gl(std::string &err)
 {
-#define F(ret, name, args) p_##name = (PFN_##name)SDL_GL_GetProcAddress(#name); if (!p_##name) { err = "falta la funcion OpenGL " #name; return false; }
+#define F(ret, name, args) p_##name = (PFN_##name)SDL_GL_GetProcAddress(#name); if (!p_##name) { err = "OpenGL function missing: " #name; return false; }
 	GLFUNCS
 #undef F
 	return true;
-}
-
-void output_rect(int ww, int wh, int w, int h, bool integer, float aspect, int &x, int &y, int &dw, int &dh)
-{
-	if (aspect <= 0)
-	{
-		dw = ww; dh = wh;
-		if (integer && h > 0) dh = std::max(1, wh / h) * h;
-	}
-	else
-	{
-		dw = ww; dh = int(ww / aspect);
-		if (dh > wh) { dh = wh; dw = int(wh * aspect); }
-		if (integer && h > 0)
-		{
-			int n = std::max(1, dh / h);
-			dh = n * h;
-			dw = std::min(ww, int(dh * aspect));
-		}
-	}
-	x = (ww - dw) / 2;
-	y = (wh - dh) / 2;
 }
 
 static GLuint compile(GLenum type, const std::string &src, std::string &err)
@@ -197,7 +176,7 @@ void gl_presenter::shutdown()
 	m_ok = false;
 }
 
-void gl_presenter::present(const uint32_t *px, int w, int h, int shader, bool integer, float scan_strength, float aspect)
+void gl_presenter::present(const uint32_t *px, int w, int h, int shader, const view_rect &view, float scan_strength, bool swap_now)
 {
 	if (!m_ok) return;
 	shader = std::clamp(shader, 0, m_nprog - 1);
@@ -226,8 +205,7 @@ void gl_presenter::present(const uint32_t *px, int w, int h, int shader, bool in
 
 	int ww, wh;
 	SDL_GL_GetDrawableSize(m_win, &ww, &wh);
-	int x, y, dw, dh;
-	output_rect(ww, wh, w, h, integer, aspect, x, y, dw, dh);
+	int x = view.x, y = view.y, dw = view.w, dh = view.h;
 	p_glViewport(0, 0, ww, wh);
 	p_glClearColor(0, 0, 0, 1);
 	p_glClear(GL_COLOR_BUFFER_BIT);
@@ -240,11 +218,39 @@ void gl_presenter::present(const uint32_t *px, int w, int h, int shader, bool in
 	p_glUniform2f(p_glGetUniformLocation(p, "u_out"), float(dw), float(dh));
 	float opt = shader == 2 ? scan_strength : shader == 4 ? 1.0f : 0.0f;
 	p_glUniform1f(p_glGetUniformLocation(p, "u_opt"), opt);
+	p_glUniform1f(p_glGetUniformLocation(p, "u_smooth"), view.smooth ? 1.0f : 0.0f);
 	static const float quad[] = { -1, -1, 0, 1, 1, -1, 1, 1, -1, 1, 0, 0, 1, 1, 1, 0 };
 	p_glVertexAttribPointer(0, 2, GL_FLOAT, 0, 16, quad);
 	p_glVertexAttribPointer(1, 2, GL_FLOAT, 0, 16, quad + 2);
 	p_glEnableVertexAttribArray(0);
 	p_glEnableVertexAttribArray(1);
 	p_glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
-	SDL_GL_SwapWindow(m_win);
+	if (swap_now) SDL_GL_SwapWindow(m_win);
+}
+
+void gl_presenter::swap() { if (m_ok) SDL_GL_SwapWindow(m_win); }
+
+void gl_presenter::drawable_size(int &w, int &h) const
+{
+	w = h = 0;
+	if (m_win) SDL_GL_GetDrawableSize(m_win, &w, &h);
+}
+
+bool gl_presenter::capture(std::vector<uint8_t> &rgb, int &w, int &h)
+{
+	if (!m_ok) return false;
+	drawable_size(w, h);
+	if (w <= 0 || h <= 0) return false;
+	std::vector<uint8_t> rgba(size_t(w) * h * 4);
+	p_glPixelStorei(0x0D05 /* GL_PACK_ALIGNMENT */, 1);
+	p_glReadPixels(0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, rgba.data());
+	rgb.resize(size_t(w) * h * 3);
+	for (int y = 0; y < h; y++)                  // GL rows run bottom to top
+		for (int x = 0; x < w; x++)
+		{
+			const uint8_t *s = &rgba[(size_t(h - 1 - y) * w + x) * 4];
+			uint8_t *d = &rgb[(size_t(y) * w + x) * 3];
+			d[0] = s[0]; d[1] = s[1]; d[2] = s[2];
+		}
+	return true;
 }

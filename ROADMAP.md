@@ -113,6 +113,8 @@ No game changes. All in `src/app/`.
 | W1.5 | Sonnet | Side-fill choice for anything shown 4:3 on a wider screen: black, dimmed blur of the picture, or a user-supplied bezel image. | Screenshot of each |
 | W1.6 | Sonnet | `tools/headless/viewtest`: renders one frame through the presenter at a given window size and writes a PNG, so every later check is one command. Resolution list used by all Part 1 checks: 1024x768, 1280x720, 1280x800, 1920x1080, 1920x1200, 2560x1080, 2560x1440, 2560x1600, 3440x1440, 3840x1600, 3840x2160, 5120x1440. | Runs in CI on a synthetic test pattern (no ROM) |
 
+**Status:** W1.1, W1.2 and W1.6 are done. `src/app/view.cpp` places the picture from the window shape (Original 4:3, Widescreen, Stretch; Integer, Fit, Smooth; Fit is the default), and `tools/headless/viewtest` checks it: `--rects` over the resolution list without a display, and real frames of a test pattern through the presenter under Xvfb, both in CI with the PNGs as an artifact. The frames were drawn off-screen with software OpenGL; no real 1080p or 4K monitor was used. W1.3, W1.4 and W1.5 are open.
+
 **Gate:** advisor compares screenshots at 1080p, 4K and 3440x1440 in all three modes. W1
 can be released here.
 

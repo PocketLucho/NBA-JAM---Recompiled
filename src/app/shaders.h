@@ -19,6 +19,7 @@ uniform sampler2D u_tex;
 uniform vec2 u_src;
 uniform vec2 u_out;
 uniform float u_opt;
+uniform float u_smooth;   // 1 = plain bilinear instead of crisp pixels (scaling "Smooth")
 varying vec2 v_uv;
 )GLSL";
 
@@ -29,6 +30,7 @@ static const char *kSharp = R"GLSL(
 void main()
 {
 	vec2 texel = v_uv * u_src;
+	if (u_smooth > 0.5) { gl_FragColor = vec4(texture2D(u_tex, v_uv).rgb, 1.0); return; }
 	vec2 scale = max(floor(u_out / u_src), vec2(1.0));
 	vec2 range = 0.5 - 0.5 / scale;
 	vec2 d = fract(texel) - 0.5;
@@ -51,6 +53,7 @@ vec3 sharpfetch(vec2 texel)
 	float range = 0.5 - 0.5 / scale.x;
 	float d = fract(texel.x) - 0.5;
 	float fx = (d - clamp(d, -range, range)) * scale.x + 0.5;
+	if (u_smooth > 0.5) fx = fract(texel.x);
 	return texture2D(u_tex, vec2(floor(texel.x) + fx, floor(texel.y) + 0.5) / u_src).rgb;
 }
 void main()
@@ -143,10 +146,10 @@ void main()
 )GLSL";
 
 static const shader_def kShaders[] = {
-	{ "Nitido (pixel perfect)", kSharp },
-	{ "Suavizado", kSmooth },
+	{ "Sharp", kSharp },
+	{ "Smooth", kSmooth },
 	{ "Scanlines", kScanlines },
 	{ "CRT", kCRT },
-	{ "CRT curvo", kCRT },
+	{ "Curved CRT", kCRT },
 };
 static constexpr int kNumShaders = 5;

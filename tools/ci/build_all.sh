@@ -11,6 +11,7 @@ case $target in
   linux)
     make -j"$j" BUILD=build/linux build/linux/libcore.a build/linux/liblua.a build/linux/modtest build/linux/luatest build/linux/pathtest build/linux/newstest
     make BUILD=build/linux SDL2L="$sdl" linux-app
+    make BUILD=build/linux SDL2L="$sdl" build/linux/viewtest
     cp build/linux/NBAJamRecomp "$exe_out"
     ;;
   win)

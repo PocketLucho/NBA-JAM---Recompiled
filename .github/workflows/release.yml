@@ -43,7 +43,8 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends build-essential zip \
             libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev libxfixes-dev libxss-dev \
-            libwayland-dev libxkbcommon-dev libasound2-dev libpulse-dev libudev-dev libdrm-dev libgbm-dev libgl-dev
+            libwayland-dev libxkbcommon-dev libasound2-dev libpulse-dev libudev-dev libdrm-dev libgbm-dev libgl-dev \
+            xvfb libgl1-mesa-dri
 
       - name: Cache SDL2 (pinned 2.30.9, built from the checked source tarball)
         uses: actions/cache@v4
@@ -74,6 +75,25 @@ jobs:
           set -o pipefail
           build/linux/newstest | tee newstest.log
           grep -q ", 0 failed" newstest.log
+
+      - name: Picture placement tests (no display needed)
+        run: |
+          set -o pipefail
+          build/linux/viewtest --rects | tee viewtest.log
+          grep -q ", 0 failed" viewtest.log
+
+      - name: Presenter on a test pattern at every listed resolution (Xvfb, software OpenGL)
+        run: |
+          set -o pipefail
+          mkdir -p viewtest-out
+          xvfb-run -a -s "-screen 0 5120x2160x24" build/linux/viewtest --all viewtest-out | tee viewtest-gl.log
+          grep -q ", 0 failed" viewtest-gl.log
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: viewtest-screenshots
+          path: viewtest-out/*.png
+          if-no-files-found: error
 
       - name: Version string matches the tag
         run: |
