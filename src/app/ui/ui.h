@@ -23,6 +23,7 @@
 //   Focus is never lost and never rests on a header or a disabled item.
 #pragma once
 #include "canvas.h"
+#include "lettering.h"
 #include <cstdint>
 #include <deque>
 #include <string>
@@ -135,10 +136,14 @@ struct prompt { act a; std::string text; };
 
 struct theme
 {
-	uint32_t bg_top = 0xff14102c, bg_bottom = 0xff301c5c, title = 0xffff8020, tab = 0xffb0b0d0, tab_sel = 0xffffffff,
+	// the title's gradient and the outline of all lettering (U2.1); other text takes its
+	// gradient from its one colour, see ink_for
+	uint32_t title_top = 0xffffec60, title_bottom = 0xffff5a10, outline = 0xff000000;
+	uint32_t bg_top = 0xff14102c, bg_bottom = 0xff301c5c, tab = 0xffb0b0d0, tab_sel = 0xffffffff,
 	         panel = 0xff1c1638, panel_edge = 0xff5a4a9a, strip = 0xff3a2a78, strip_text = 0xffffe080,
 	         text = 0xffc8d8ff, text_focus = 0xffffffff, text_off = 0xff707088, header = 0xff80ff80,
 	         bar = 0xffffa020, value = 0xffffe080, status = 0xffb0b0b0, dialog = 0xff241a50;
+	ink ink_for(uint32_t colour) const { return ink_of(colour, outline); }
 };
 
 struct result

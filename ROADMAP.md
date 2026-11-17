@@ -248,6 +248,8 @@ Opus. New files under `src/app/ui/`; `main.cpp` shrinks instead of growing.
 | U2.3 | Sonnet | **Themes:** a small theme file per game family (colours, gradient, background, highlight, which ROM images to use). The picker changes theme as the highlighted game changes, with a short cross-fade. | Screenshot of the picker on each game |
 | U2.4 | Sonnet | Glyphs missing from a game's own font (accents, symbols, lower case if absent) come from the project font, matched in size and colour. | Spanish strings render fully in every theme |
 
+**Status:** U2.1 is done, in English (rule 4): `src/app/ui/lettering.{h,cpp}` holds the project's own lettering, drawn for it on a pixel grid: capitals, digits and all ASCII punctuation, with a dark outline, a bevel and a top-to-bottom gradient, in three sizes (7, 8 and 16 pixels on the 400 x 300 menu canvas). The toolkit draws all its text with it and measures text in pixels, since the letters have their own widths; the gradient of the title and the outline colour are in the theme. `uitest` (79 checks) covers it and writes `font_sheet.png`, the full character sheet; `viewtest --gallery` shows the gallery in it at four sizes. Limits, so nobody assumes more: the title size is the list drawing doubled with smoothed corners, not a third drawing; lower-case letters are shown as capitals; the accented Spanish letters are not drawn and show as `?` until a second language returns (U2.4 is where missing glyphs are handled). Seen only in the test PNGs, not yet on a monitor in the program.
+
 ## Phase U3: rebuild the existing screens
 
 Sonnet, on the U1 toolkit. Each screen replaces its plain-text version; behaviour stays.
