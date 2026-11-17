@@ -568,6 +568,51 @@ int main(int argc, char **argv)
 		CHECK(clean && themed.px != plain.px, "themes: in a game's lettering the rows still stay inside their panels");
 	}
 
+	// ---------------- the screens not rebuilt yet: old layout, new lettering ----------------
+	{
+		canvas cv(200, 40);
+		std::fill(cv.px.begin(), cv.px.end(), 0xff123456);
+		cv.text(8, 8, "AB I", 0xffffffff);
+		// each character keeps its 8-pixel cell: nothing left of the first cell's outline,
+		// the third cell (a space) empty, the I inside the fourth
+		bool cells = true, third_empty = true, fourth = false;
+		for (int y = 0; y < cv.h; y++) for (int x = 0; x < cv.w; x++)
+		{
+			bool ink_here = cv.px[size_t(y) * cv.w + x] != 0xff123456;
+			if (ink_here && (x < 7 || x > 8 + 32 || y < 7 || y > 16)) cells = false;
+			if (ink_here && x >= 8 + 17 && x < 8 + 23) third_empty = false;
+			if (ink_here && x >= 8 + 24 && x < 8 + 32) fourth = true;
+		}
+		CHECK(cells && third_empty && fourth && cv.text_w("AB I") == 32, "old screens: text keeps its 8-pixel cells, so every old layout holds");
+		bool outlined = false, graded = false;
+		for (uint32_t p : cv.px) { outlined = outlined || p == 0xff000000; graded = graded || (p != 0xff000000 && p != 0xff123456 && p != 0xffffffff); }
+		CHECK(outlined && graded, "old screens: their text is drawn in the project lettering (outline and gradient)");
+		canvas big(200, 60);
+		std::fill(big.px.begin(), big.px.end(), 0xff123456);
+		big.text(8, 8, "A", 0xffff8020, 4);
+		int top = 99, bottom = -1;
+		for (int y = 0; y < big.h; y++) for (int x = 0; x < big.w; x++) if (big.px[size_t(y) * big.w + x] != 0xff123456 && big.px[size_t(y) * big.w + x] != 0xff000000) { top = std::min(top, y); bottom = std::max(bottom, y); }
+		CHECK(top == 8 && bottom == 8 + 31, "old screens: text four cells high is the title lettering doubled");
+		// a file name keeps its lower case: drawn in the plain font, not as capitals
+		canvas a(200, 40), b(200, 40), c2(200, 40);
+		a.text(8, 8, "nbajam_recomp.ini", 0xffffffff);
+		b.text_plain(8, 8, "nbajam_recomp.ini", 0xffffffff);
+		c2.text(8, 8, "Esc: back", 0xffffffff);
+		canvas d(200, 40);
+		d.text_plain(8, 8, "Esc: back", 0xffffffff);
+		canvas sample(400, 300);
+		sample.text(sample.w / 2 - sample.text_w("NBA JAM", 4) / 2, 8, "NBA JAM", 0xffff8020, 4);
+		sample.text(sample.w / 2 - sample.text_w("RECOMP", 2) / 2, 42, "RECOMP", 0xffffffff, 2);
+		int sy = sample.text_wrap(12, 70, "Data (portable): C:/Users/someone/Games/NBAJamRecomp", 0xffa0a0c0);
+		sy = sample.text_wrap(12, sy + 3, "A recompilation of Midway's NBA JAM saga from the original source code that was made public.", 0xffd8e0ff);
+		sy = sample.text_wrap(12, sy + 3, "Built from source:", 0xff80ff80);
+		sy = sample.text_wrap(12, sy, " T.E. rev 4.0 (identical to the final ROM)", 0xffd8e0ff);
+		sy = sample.text_wrap(12, sy, "Sources: github.com/historicalsource and Asure", 0xffb0b0b0);
+		sample.text(8, sample.h - 11, "Enter / Esc: back (saved to mods.ini)", 0xffb0b0b0);
+		write_png(out, "old_screens_sample.png", sample);
+		CHECK(a.px == b.px && c2.px != d.px, "old screens: file names and web addresses keep their lower case; other words use the lettering");
+	}
+
 	printf("\n%d checks, %d failed\n", g_run, g_fail);
 	return g_fail ? 1 : 0;
 }

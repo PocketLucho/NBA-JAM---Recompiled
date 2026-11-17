@@ -303,6 +303,49 @@ void draw_text(canvas &cv, int x, int y, const std::string &s, face f, const ink
 	}
 }
 
+// ---------------------------------------------------------------- the old screens' text
+// A word that only reads right with its lower case (a file name, a folder, a web address)
+// stays in the plain 8x8 font; the lettering has capitals only.
+static bool needs_case(const std::string &w)
+{
+	bool lower = false, mark = false;
+	for (size_t i = 0; i < w.size(); i++)
+	{
+		char c = w[i];
+		lower = lower || (c >= 'a' && c <= 'z');
+		mark = mark || c == '/' || c == char(92) || c == '_' || (c == '.' && i + 1 < w.size() && w[i + 1] >= 'a' && w[i + 1] <= 'z');
+	}
+	return lower && mark && w.size() > 3;
+}
+
+void cell_text(canvas &cv, int x, int y, const std::string &s, uint32_t c, int scale)
+{
+	scale = std::max(1, scale);
+	// one cell high: the note size; two and more: the title size, doubled again for four
+	const face f = scale >= 2 ? face::title : face::note;
+	const int mul = scale >= 2 ? scale / 2 : 1, cell = 8 * scale, h = all().h[int(f)] * mul;
+	const ink k = ink_of(c);
+	size_t i = 0;
+	while (i < s.size())
+	{
+		size_t e = s.find(' ', i);
+		if (e == std::string::npos) e = s.size();
+		const std::string word = s.substr(i, e - i);
+		const int wx = x + int(i) * cell;
+		if (needs_case(word)) cv.text_plain(wx, y, word, c, scale, true);
+		else
+			for (int pass = 0; pass < 2; pass++)
+				for (size_t n = 0; n < word.size(); n++)
+				{
+					const glyph &g = all().get(word[n], int(f));
+					auto at = [&](int px, int py) { return px >= 0 && py >= 0 && px < g.w * mul && py < h && g.m[size_t(py / mul) * g.w + size_t(px / mul)]; };
+					// in the middle of its cell; a letter wider than the cell leans on its neighbours
+					paint(cv, wx + int(n) * cell + (cell - g.w * mul) / 2, y, g.w * mul, h, at, k, pass, 1, f == face::note ? 50 : 95, f == face::note ? 40 : 75);
+				}
+		i = e + 1;
+	}
+}
+
 // ---------------------------------------------------------------- a game's own lettering
 namespace
 {
