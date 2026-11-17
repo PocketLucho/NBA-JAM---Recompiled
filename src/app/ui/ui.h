@@ -108,6 +108,7 @@ struct item
 	int id = 0;
 	std::string label;
 	bool disabled = false;
+	bool dim = false;                      // drawn greyed, but can be highlighted and pressed (a game without ROMs)
 	bool on = false;                       // toggle
 	std::vector<std::string> choices;      // picker
 	int choice = 0;

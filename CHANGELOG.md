@@ -35,6 +35,7 @@ Sections, in this order: **Added**, **Changed**, **Fixed**, **Online**, **Known 
 - Overlays and borders, as in RetroArch: PNGs in the `overlays` folder are shown around
   the game, drawn over it where they have a transparent opening. RetroArch border overlays
   (`.cfg` with its `.png`) can be copied in as they are. Two original borders are included.
+- A Settings screen (from the main menu): picture shape, scaling, look, scanline strength, what fills the sides of a 4:3 picture, fullscreen, volume, the cabinet switches (free play, four players, country, video clips) and the check for new versions. The keys F4 to F8, F11, - and + still work.
 
 ### Changed
 - The CRT mask is as coarse at 4K as at 1080p (it was twice as fine at 4K), and it lines up
@@ -57,6 +58,7 @@ Sections, in this order: **Added**, **Changed**, **Fixed**, **Online**, **Known 
   online, mods and troubleshooting. Build instructions moved to `docs/BUILDING.md`.
 - The version is taken from the release tag instead of the build date.
 - Menus, messages and the in-game notices are drawn in the project's own chunky lettering instead of the plain 8x8 font. The screens are laid out as before; file names and web addresses keep the plain font so their lower case stays readable. Rebuilt screens follow.
+- The main menu is rebuilt: the games in a list with the highlighted game's name in its own lettering beside it, and the reason when a game cannot be played. Colours, background and lettering follow the highlighted game when its ROMs are there. Everything on it works with a controller, keyboard or mouse. Quitting asks first. "Look for ROMs again" rescans the roms folder without a restart. The news on/off switch moved to Settings.
 
 ### Fixed
 
