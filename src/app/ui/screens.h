@@ -11,6 +11,10 @@
 //         itself. A button is bound by pressing it.
 //   U3.4  Lua mods: the scripts in a list; beside it the highlighted script's page (on or
 //         off, which games, its options).
+//   U3.5  Online: host or join, the address, port and input delay; then the lobby with
+//         the players and, for the host, the delay and the start.
+//   U3.6  About and help: the program, the controls as they are set now, the program's
+//         keys, the credits. News: the notes of the latest release.
 //   U3.2  Settings: Video, Sound, Game and Program tabs. Everything on it is also on a key
 //         (F4 to F8, F11, - and +), which keep working.
 #pragma once
@@ -121,5 +125,72 @@ enum controls_id { ct_game = 1, ct_player, ct_profile, ct_act0 = 100, ct_short0 
 
 screen make_controls(const controls_state &st);
 void update_controls(screen &s, const controls_state &st);
+
+// ---------------------------------------------------------------- Online (U3.5)
+struct online_state
+{
+	std::string game;                    // the highlighted game: the one a host starts
+	bool available = true;               // its ROMs are there, so it can be hosted
+	std::string address;                 // of the host to join
+	int port = 7845, delay = 4;
+	std::vector<std::string> local_ips;
+	int typing = 0;                      // 1: the address is being typed, 2: the port
+	std::string typed;
+};
+
+enum online_id { on_host = 1, on_join, on_address, on_port, on_delay };
+
+screen make_online(const online_state &st);
+void update_online(screen &s, const online_state &st);
+
+// The lobby: the host sees who has joined, sets the input delay and starts; a player who
+// joined sees how the connection stands and waits.
+struct lobby_state
+{
+	bool host = true;
+	std::string game;
+	std::vector<std::string> local_ips;
+	int port = 7845, delay = 4;
+	struct player { std::string name, status; };
+	std::vector<player> players;         // host: one per player, the host first
+	std::string address;                 // joining: the host's address
+	int slot = -1, ping = 0, count = 0;  // joining: slot -1 until the host answers
+	bool receiving = false;              // joining: the game data is coming
+};
+
+enum lobby_id { lb_start = 1, lb_delay, lb_leave };
+
+screen make_lobby(const lobby_state &st);
+void update_lobby(screen &s, const lobby_state &st);
+
+// ---------------------------------------------------------------- About and help (U3.6)
+struct about_state
+{
+	std::string version, build, data_dir;
+	bool portable = false;
+	std::string latest;                  // the latest release's tag; empty: not known
+	bool latest_new = false;
+	// the Controls tab: what each action is on now, for one player, from the keys in the
+	// settings file and from the player's controller profile
+	int player = 0;
+	std::string game, profile, pad;      // pad: the player's controller, empty: none connected
+	struct row { std::string action, key, binding; };
+	std::vector<row> controls;           // key is empty for actions the keyboard does not have
+};
+
+enum about_id { ab_player = 1 };
+
+screen make_about(const about_state &st);
+void update_about(screen &s, const about_state &st);
+
+// ---------------------------------------------------------------- News
+struct news_state
+{
+	bool on = true, ok = false, is_new = false;
+	std::string name, date, version, page;
+	std::vector<std::string> lines;      // the release notes as plain lines; a line all in capitals is a heading
+};
+
+screen make_news(const news_state &st);
 
 } // namespace ui

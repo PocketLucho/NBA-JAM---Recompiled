@@ -197,6 +197,7 @@ private:
 	bool move_in_panel(int step);       // by `step` items; false if nothing usable in that direction
 	bool move_to_panel(int dx, int dy);
 	void keep_visible(panel &p) const;
+	bool scroll_text(int by);           // a panel with nothing to select: the directions scroll it
 	result change(item &it, int dir);
 	result press(item &it);
 	void set_tab(int t);

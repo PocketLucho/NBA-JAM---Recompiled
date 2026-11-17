@@ -350,4 +350,272 @@ void update_controls(screen &s, const controls_state &st)
 	if (item *i = s.find(ct_export_setup)) i->label = st.game > 0 ? "Export this game's setup" : "Export all-games setup";
 }
 
+// ---------------------------------------------------------------- shared by the screens below
+// text wrapped to a panel's width, one label a line
+static void add_text(std::vector<item> &items, const std::string &text, int px, int most = 40)
+{
+	for (auto &l : wrap_px(text, px, face::list, most)) items.push_back(label(l));
+}
+
+// a line that is not selected: a name at the left and what it is at the right
+static item row(const std::string &name, const std::string &value)
+{
+	item i = label(name);
+	i.value_text = value;
+	return i;
+}
+
+static std::string joined(const std::vector<std::string> &v, const char *none)
+{
+	std::string all;
+	for (auto &s : v) all += (all.empty() ? "" : ", ") + s;
+	return all.empty() ? none : all;
+}
+
+// ---------------------------------------------------------------- Online (U3.5)
+screen make_online(const online_state &st)
+{
+	screen s;
+	s.title = "ONLINE GAME";
+	tab t;
+	t.name = "Play online";
+	panel play;
+	play.r = { 0.0f, 0.0f, 0.5f, 1.0f };
+	play.items = { button(on_host, "Host a game"), button(on_join, "Join a game"), header("CONNECTION"), button(on_address, "Address"),
+	               button(on_port, "UDP port"), slider(on_delay, "Delay", float(st.delay), 1, 10, 1) };
+	panel help;
+	help.title = "How it works";
+	help.r = { 0.52f, 0.0f, 0.48f, 1.0f };
+	t.panels = { play, help };
+	s.tabs = { t };
+	s.fix_focus();
+	update_online(s, st);
+	return s;
+}
+
+void update_online(screen &s, const online_state &st)
+{
+	if (s.tabs.empty() || s.tabs[0].panels.size() < 2) return;
+	s.tabs[0].panels[0].title = st.game;
+	if (item *i = s.find(on_host)) { i->value_text = st.available ? "" : "No ROMs"; i->dim = !st.available; }
+	if (item *i = s.find(on_join)) i->value_text = st.address.empty() ? "no address yet" : "";
+	if (item *i = s.find(on_address)) i->value_text = st.typing == 1 ? st.typed + "_" : st.address.empty() ? "not set" : st.address;
+	if (item *i = s.find(on_port)) i->value_text = st.typing == 2 ? st.typed + "_" : std::to_string(st.port);
+	if (item *i = s.find(on_delay)) i->value = float(std::clamp(st.delay, 1, 10));
+	panel &help = s.tabs[0].panels[1];
+	const int px = int(s.panel_rect(1).w) - 30;
+	std::vector<item> items;
+	add_text(items, "The host picks the game and plays as player 1. Everybody needs the same ROMs.", px);
+	items.push_back(header("THE HOST"));
+	add_text(items, "Opens the UDP port on the router, or everybody uses a virtual LAN (Tailscale, ZeroTier, Radmin VPN).", px);
+	items.push_back(header("INPUT DELAY"));
+	add_text(items, "3 or 4 on a LAN, 5 to 7 over the internet. The host decides.", px);
+	help.items = items;
+	// under the connection: this computer's own address, for the host to tell the others
+	panel &play = s.tabs[0].panels[0];
+	play.items.resize(6);
+	play.items.push_back(header("YOUR LOCAL ADDRESS"));
+	add_text(play.items, joined(st.local_ips, "not known"), int(s.panel_rect(0).w) - 30, 4);
+	s.fix_focus();
+}
+
+screen make_lobby(const lobby_state &st)
+{
+	screen s;
+	s.title = "ONLINE GAME";
+	tab t;
+	t.name = st.host ? "Hosting" : "Joining";
+	panel who;
+	who.r = { 0.0f, 0.0f, 1.0f, 0.38f };
+	panel acts;
+	acts.r = { 0.0f, 0.4f, 0.5f, 0.6f };
+	if (st.host) acts.items = { slider(lb_delay, "Delay", float(st.delay), 1, 10, 1), button(lb_start, "Start the game"), button(lb_leave, "Close the game") };
+	else acts.items = { button(lb_leave, "Leave") };
+	panel info;
+	info.title = "This game";
+	info.r = { 0.52f, 0.4f, 0.48f, 0.6f };
+	t.panels = { who, acts, info };
+	s.tabs = { t };
+	s.cur_panel = 1;
+	if (st.host) s.tabs[0].panels[1].focus = 1;         // on Start
+	s.fix_focus();
+	update_lobby(s, st);
+	return s;
+}
+
+void update_lobby(screen &s, const lobby_state &st)
+{
+	if (s.tabs.empty() || s.tabs[0].panels.size() < 3) return;
+	panel &who = s.tabs[0].panels[0], &info = s.tabs[0].panels[2];
+	const int px = int(s.panel_rect(2).w) - 30;
+	std::vector<item> w, i;
+	if (st.host)
+	{
+		who.title = "Players: " + std::to_string(st.players.size()) + " of 4";
+		for (auto &p : st.players) w.push_back(label(p.name + "   " + p.status));
+		if (st.players.size() < 2) { w.push_back(label("")); add_text(w, "Nobody has joined yet. You can start alone to try it.", int(s.panel_rect(0).w) - 30, 3); }
+		if (item *d = s.find(lb_delay)) d->value = float(std::clamp(st.delay, 1, 10));
+		i.push_back(header("GAME"));
+		add_text(i, st.game, px, 2);
+		i.push_back(header("TELL THE OTHERS"));
+		add_text(i, "Address: " + joined(st.local_ips, "not known"), px, 3);
+		i.push_back(label("UDP port: " + std::to_string(st.port)));
+		add_text(i, "Over the internet: your public or virtual LAN address.", px, 3);
+	}
+	else
+	{
+		who.title = "Connection";
+		w.push_back(row("Host", st.address));
+		w.push_back(row("UDP port", std::to_string(st.port)));
+		if (st.slot < 0) w.push_back(label("Waiting for an answer..."));
+		else
+		{
+			w.push_back(row("You are", "player " + std::to_string(st.slot + 1)));
+			w.push_back(row("Ping", std::to_string(st.ping) + " ms"));
+			w.push_back(row("Players", std::to_string(st.count)));
+			w.push_back(label(st.receiving ? "Receiving the game data..." : "Waiting for the host to start..."));
+		}
+		i.push_back(header("GAME"));
+		add_text(i, "The host picks the game. It starts here when the host starts it.", px, 4);
+		i.push_back(header("YOUR CONTROLS"));
+		add_text(i, "The player 1 keys, or the first controller.", px, 3);
+	}
+	who.items = w;
+	info.items = i;
+	s.fix_focus();
+}
+
+// ---------------------------------------------------------------- About and help (U3.6)
+screen make_about(const about_state &st)
+{
+	screen s;
+	s.title = "ABOUT AND HELP";
+	const int px = screen::kW - 16 - 30;
+
+	tab about;
+	about.name = "About";
+	panel a;
+	a.r = { 0.0f, 0.0f, 1.0f, 1.0f };
+	a.items.push_back(row("Version", st.version));
+	a.items.push_back(row("Build", st.build));
+	if (!st.latest.empty()) a.items.push_back(label("Latest release: " + st.latest + (st.latest_new ? " (new: see News)" : " (you are up to date)")));
+	a.items.push_back(header(st.portable ? "YOUR FILES (PORTABLE)" : "YOUR FILES"));
+	add_text(a.items, st.data_dir, px, 3);
+	a.items.push_back(header("WHAT THIS IS"));
+	add_text(a.items, "A recompilation of Midway's NBA JAM saga from the original source code that was made public.", px);
+	add_text(a.items, "Created by Pocket_lucho with Claude (Anthropic).", px);
+	a.items.push_back(header("BUILT FROM SOURCE"));
+	a.items.push_back(label("T.E. rev 4.0 (identical to the final ROM)"));
+	a.items.push_back(label("T.E. Special Edition rev 5.02 (identical)"));
+	a.items.push_back(label("Maximum Hangtime 1.3 (identical to the ROM)"));
+	about.panels = { a };
+
+	tab ctl;
+	ctl.name = "Controls";
+	panel who;
+	who.r = { 0.0f, 0.0f, 1.0f, 0.19f };
+	who.items = { picker(ab_player, "Player", { "Player 1", "Player 2", "Player 3", "Player 4" }, st.player), label("") };
+	panel keys;
+	keys.title = "Keyboard";
+	keys.r = { 0.0f, 0.21f, 0.4f, 0.79f };
+	panel pad;
+	pad.r = { 0.42f, 0.21f, 0.58f, 0.79f };
+	ctl.panels = { who, keys, pad };
+
+	tab prog;
+	prog.name = "Keys";
+	panel k;
+	k.title = "The program's keys";
+	k.r = { 0.0f, 0.0f, 1.0f, 1.0f };
+	static const char *const kKeys[][2] = {
+		{ "Back to the menu, leave a game", "Esc" }, { "Pause", "P" }, { "Help over the game", "F1" }, { "TEST switch (service menu)", "F2" },
+		{ "Reset the game", "F3" }, { "Service credit", "9" }, { "Picture look", "F4" }, { "Scaling", "F5" },
+		{ "Scanline strength", "F6" }, { "Picture shape", "F7" }, { "Sides of a 4:3 picture", "F8" },
+		{ "Fullscreen", "F11 or Alt+Enter" }, { "Screenshot", "F12 or Print Screen" }, { "Volume", "- and +" }, { "Online game, from the menu", "N" },
+	};
+	for (auto &r : kKeys) k.items.push_back(row(r[0], r[1]));
+	add_text(k.items, "F4 to F8, F11 and the volume are also in Settings.", px, 2);
+	prog.panels = { k };
+
+	tab cred;
+	cred.name = "Credits";
+	panel c;
+	c.r = { 0.0f, 0.0f, 1.0f, 1.0f };
+	c.items.push_back(header("TOOLS"));
+	add_text(c.items, "Own TI GSPA assembler and Midway's LOAD2 (emu2).", px);
+	c.items.push_back(header("EMULATION"));
+	add_text(c.items, "MAME cores (TMS34010, 6809, ADSP-2105) and ymfm.", px);
+	c.items.push_back(header("SOURCES"));
+	c.items.push_back(label("github.com/historicalsource and Asure"));
+	c.items.push_back(label("github.com/PocketLucho/NBA-JAM---Recompiled"));
+	c.items.push_back(header("RELEASES"));
+	c.items.push_back(label("github.com/richvam/NBA-JAMs-Recomp"));
+	c.items.push_back(header("IF YOU WANT TO SUPPORT POCKET_LUCHO"));
+	c.items.push_back(label("buymeacoffee.com/pocket_lucho"));
+	c.items.push_back(label(""));
+	c.items.push_back(label("NBA JAM (c) Midway. Non-profit fan project."));
+	cred.panels = { c };
+
+	s.tabs = { about, ctl, prog, cred };
+	s.fix_focus();
+	update_about(s, st);
+	return s;
+}
+
+void update_about(screen &s, const about_state &st)
+{
+	if (s.tabs.size() < 2 || s.tabs[1].panels.size() < 3) return;
+	if (item *i = s.find(ab_player)) i->choice = std::clamp(st.player, 0, 3);
+	panel &keys = s.tabs[1].panels[1], &pad = s.tabs[1].panels[2];
+	pad.title = st.pad.empty() ? "Controller: none" : "Controller: " + st.pad;
+	keys.items.clear();
+	pad.items.clear();
+	for (auto &r : st.controls)
+	{
+		if (!r.key.empty()) keys.items.push_back(row(r.action, r.key));
+		pad.items.push_back(row(r.action, r.binding));
+	}
+	const int px = int((screen::kW - 16) * 0.4f) - 30;       // the width of the keyboard's list
+	keys.items.push_back(label(""));
+	add_text(keys.items, "The keys are in the settings file, nbajam_recomp.ini.", px, 3);
+	// which profile that is, under the player
+	panel &who = s.tabs[1].panels[0];
+	if (who.items.size() > 1) who.items[1] = row("Profile, set in Controls", st.profile);
+}
+
+// ---------------------------------------------------------------- News
+screen make_news(const news_state &st)
+{
+	screen s;
+	s.title = "NEWS";
+	tab t;
+	t.name = "Latest release";
+	panel p;
+	p.r = { 0.0f, 0.0f, 1.0f, 1.0f };
+	const int px = screen::kW - 16 - 30;
+	if (!st.on) add_text(p.items, "News is switched off. Switch on \"Check for new versions\" in Settings, on the Program tab, to see the latest release here.", px);
+	else if (!st.ok) add_text(p.items, "No news. Either there is no connection, or no version has been published yet.", px);
+	else
+	{
+		p.title = st.name + (st.date.empty() ? "" : "  " + st.date);
+		p.items.push_back(header(st.is_new ? "NEW VERSION - YOU HAVE " + st.version : "YOU HAVE " + st.version + ": UP TO DATE"));
+		for (const std::string &l : st.lines)
+		{
+			if (l.empty()) { p.items.push_back(label("")); continue; }
+			bool caps = l[0] != '-' && l[0] != ' ', letter = false;
+			for (char c : l) { caps = caps && !(c >= 'a' && c <= 'z'); letter = letter || (c >= 'A' && c <= 'Z'); }
+			if (caps && letter) { p.items.push_back(header(fit_px(l, px, face::list))); continue; }
+			// a list entry's further lines are set in under its first
+			const bool entry = l.rfind("- ", 0) == 0;
+			auto w = wrap_px(l, entry ? px - 12 : px, face::list, 12);
+			for (size_t k = 0; k < w.size(); k++) p.items.push_back(label(k && entry ? "  " + w[k] : w[k]));
+		}
+		if (!st.page.empty()) { p.items.push_back(label("")); p.items.push_back(header("THE RELEASES PAGE")); add_text(p.items, st.page, px, 2); }
+	}
+	t.panels = { p };
+	s.tabs = { t };
+	s.fix_focus();
+	return s;
+}
+
 } // namespace ui

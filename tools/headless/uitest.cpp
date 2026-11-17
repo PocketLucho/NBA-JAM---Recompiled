@@ -844,6 +844,156 @@ int main(int argc, char **argv)
 		}
 	}
 
+	// ---------------- U3.5 / U3.6: Online, the lobby, About and help, News ----------------
+	{
+		auto walk = [&](const screen &start, const std::string &name)
+		{
+			static const act moves[] = { act::up, act::down, act::left, act::right, act::tab_prev, act::tab_next, act::page_up, act::page_down };
+			std::set<std::tuple<int, int, int>> seen;
+			std::vector<screen> todo = { start };
+			bool ok = true, back = true;
+			while (!todo.empty())
+			{
+				screen s = todo.back();
+				todo.pop_back();
+				auto key = std::make_tuple(s.cur_tab, s.cur_panel, s.tabs[size_t(s.cur_tab)].panels[size_t(s.cur_panel)].focus);
+				if (seen.count(key)) continue;
+				seen.insert(key);
+				ok = ok && s.focus_ok();
+				{ screen b = s; back = back && b.handle(ev(act::back)).what == result::back; }
+				for (act m : moves) { screen n = s; n.handle(ev(m)); todo.push_back(n); }
+			}
+			int missing = 0;
+			auto want = all_usable(start);
+			for (auto &w : want) missing += !seen.count(w);
+			CHECK(missing == 0 && ok && back, name + ": all " + std::to_string(want.size()) + " usable items are reached with directions alone; focus is never lost; Back is always reported");
+		};
+		auto text_of = [](const screen &s, int t, int p) { std::string all; for (auto &i : s.tabs[size_t(t)].panels[size_t(p)].items) all += i.label + " " + (i.value_text.empty() ? "" : i.value_text + " "); return all; };
+
+		// a panel of text only is read by scrolling it
+		{
+			screen s;
+			tab t;
+			panel p;
+			p.r = { 0, 0, 1, 1 };
+			for (int i = 0; i < 60; i++) p.items.push_back(label("line " + std::to_string(i)));
+			t.panels = { p };
+			s.tabs = { t };
+			s.fix_focus();
+			const int rows = s.rows_visible(0);
+			s.handle(ev(act::up));
+			bool top = s.tabs[0].panels[0].scroll == 0;
+			s.handle(ev(act::down)); s.handle(ev(act::down));
+			bool two = s.tabs[0].panels[0].scroll == 2;
+			s.handle(ev(act::page_down));
+			bool page = s.tabs[0].panels[0].scroll == 2 + rows - 1;
+			for (int i = 0; i < 100; i++) s.handle(ev(act::down));
+			bool end = s.tabs[0].panels[0].scroll == 60 - rows;
+			event wheel; wheel.ptr = event::scroll; wheel.x = 200; wheel.y = 150; wheel.amount = -3;
+			s.handle(wheel);
+			bool wh = s.tabs[0].panels[0].scroll == 60 - rows - 3;
+			s.handle(ev(act::page_up));
+			CHECK(top && two && page && end && wh && s.tabs[0].panels[0].scroll == 60 - rows - 3 - (rows - 1) && s.focus_ok(),
+			      "text panel: Up and Down scroll a line, the page buttons a page, the wheel too, and it stops at both ends");
+		}
+
+		// Online
+		online_state os;
+		os.game = "NBA JAM Tournament Edition";
+		os.local_ips = { "192.168.1.20", "100.84.12.7" };
+		screen on = make_online(os);
+		walk(on, "Online");
+		CHECK(on.focused()->id == on_host && on.find(on_address)->value_text == "not set" && on.find(on_port)->value_text == "7845" && on.find(on_delay)->value == 4 &&
+		      on.find(on_join)->value_text == "no address yet" && on.tabs[0].panels[0].title == os.game && text_of(on, 0, 0).find("192.168.1.20, 100.84.12.7") != std::string::npos,
+		      "Online: host and join, the address, port and delay, and the local addresses to tell the others");
+		for (int i = 0; i < 5; i++) on.handle(ev(act::down));
+		result dl = on.handle(ev(act::right));
+		CHECK(dl.what == result::changed && dl.id == on_delay && on.find(on_delay)->value == 5, "Online: the input delay changes with Left and Right");
+		os.address = "203.0.113.9"; os.typing = 2; os.typed = "78"; os.available = false; os.delay = 5;
+		update_online(on, os);
+		CHECK(on.find(on_port)->value_text == "78_" && on.find(on_address)->value_text == "203.0.113.9" && on.find(on_join)->value_text.empty() && on.find(on_host)->dim && on.find(on_host)->value_text == "No ROMs",
+		      "Online: a port being typed is shown as it is typed; a game without ROMs cannot be hosted and says so");
+
+		// the lobby
+		lobby_state ls;
+		ls.game = os.game; ls.local_ips = os.local_ips;
+		ls.players = { { "Player 1", "you (host)" } };
+		screen lb = make_lobby(ls);
+		walk(lb, "Lobby (host)");
+		CHECK(lb.focused()->id == lb_start && lb.tabs[0].panels[0].title == "Players: 1 of 4" && text_of(lb, 0, 0).find("start alone") != std::string::npos &&
+		      text_of(lb, 0, 2).find("UDP port: 7845") != std::string::npos, "Lobby: the host starts on Start, alone if nobody joined, and sees what to tell the others");
+		ls.players.push_back({ "Player 2", "192.168.1.31  12 ms  ready" });
+		ls.players.push_back({ "Player 3", "192.168.1.40  30 ms" });
+		ls.delay = 6;
+		update_lobby(lb, ls);
+		CHECK(lb.tabs[0].panels[0].title == "Players: 3 of 4" && lb.find(lb_delay)->value == 6 && text_of(lb, 0, 0).find("Player 2   192.168.1.31  12 ms  ready") != std::string::npos && lb.focused()->id == lb_start,
+		      "Lobby: players who join are listed with their ping; focus stays where it was");
+		lobby_state lj;
+		lj.host = false; lj.address = "203.0.113.9";
+		screen jn = make_lobby(lj);
+		walk(jn, "Lobby (joining)");
+		bool waiting = text_of(jn, 0, 0).find("Waiting for an answer") != std::string::npos && jn.focused()->id == lb_leave && !jn.find(lb_start);
+		lj.slot = 2; lj.ping = 41; lj.count = 3;
+		update_lobby(jn, lj);
+		CHECK(waiting && text_of(jn, 0, 0).find("You are player 3") != std::string::npos && text_of(jn, 0, 0).find("41 ms") != std::string::npos && text_of(jn, 0, 0).find("Waiting for the host to start") != std::string::npos,
+		      "Lobby: a player who joins sees the answer arrive, which player they are and the ping; only the host can start");
+
+		// About and help
+		about_state as;
+		as.version = "2026.11.06"; as.build = "abc1234  2026-11-17"; as.data_dir = "C:/Users/someone/Games/NBAJamRecomp"; as.latest = "v2026.12.01"; as.latest_new = true;
+		as.game = "NBA Hangtime"; as.profile = "Fight stick"; as.pad = "Xbox Wireless Controller";
+		static const char *an[13] = { "Up", "Down", "Left", "Right", "Shoot", "Pass", "Turbo", "Start", "Coin", "Shove", "Turbo shot", "Shortcut 1", "Shortcut 2" };
+		static const char *ak[9] = { "Up", "Down", "Left", "Right", "Z", "X", "C", "1", "5" };
+		for (int i = 0; i < 13; i++) as.controls.push_back({ an[i], i < 9 ? ak[i] : "", i == 9 ? "x" : i > 10 ? "-" : "a" });
+		as.controls[11].action = "Shortcut 1 = pass";
+		screen ab = make_about(as);
+		walk(ab, "About and help");
+		CHECK(ab.tabs.size() == 4 && text_of(ab, 0, 0).find("Version 2026.11.06") != std::string::npos && text_of(ab, 0, 0).find("v2026.12.01 (new: see News)") != std::string::npos &&
+		      text_of(ab, 0, 0).find(as.data_dir) != std::string::npos && text_of(ab, 3, 0).find("ymfm") != std::string::npos && text_of(ab, 2, 0).find("Screenshot F12") != std::string::npos,
+		      "About: the version, the latest release, where the files are, the program's keys and the credits");
+		CHECK(text_of(ab, 1, 1).find("Shoot Z") != std::string::npos && text_of(ab, 1, 1).find("Shove") == std::string::npos && text_of(ab, 1, 2).find("Shove x") != std::string::npos && text_of(ab, 1, 2).find("Shortcut 1 = pass -") != std::string::npos &&
+		      ab.tabs[1].panels[2].title == "Controller: Xbox Wireless Controller" && text_of(ab, 1, 0).find("Fight stick") != std::string::npos &&
+		      [&] { screen c = ab; c.cur_tab = 1; return int(c.tabs[1].panels[2].items.size()) <= c.rows_visible(2) && int(c.tabs[1].panels[1].items.size()) <= c.rows_visible(1); }() &&
+		      [&] { screen c = ab; c.cur_tab = 2; return int(c.tabs[2].panels[0].items.size()) <= c.rows_visible(0); }(),
+		      "Help: the controls are listed from what is set now, keys and controller side by side, and fit without scrolling");
+		as.controls[4].key = "Space"; as.controls[4].binding = "b, y"; as.player = 2; as.pad.clear();
+		update_about(ab, as);
+		CHECK(text_of(ab, 1, 1).find("Shoot Space") != std::string::npos && text_of(ab, 1, 2).find("Shoot b, y") != std::string::npos && ab.find(ab_player)->choice == 2 &&
+		      ab.tabs[1].panels[2].title == "Controller: none", "Help: a changed key or binding, and another player, show at once");
+
+		// News
+		news_state ns;
+		ns.ok = true; ns.is_new = true; ns.name = "NBA JAM Recomp 2026.12.01"; ns.date = "2026-12-01"; ns.version = "2026.11.06"; ns.page = "github.com/richvam/NBA-JAMs-Recomp/releases";
+		ns.lines = { "ADDED", "- A Settings screen from the main menu, with picture shape, scaling, look, scanline strength and everything else that was only on a key before.", "- News.", "", "FIXED" };
+		for (int i = 0; i < 30; i++) ns.lines.push_back("- Fix number " + std::to_string(i + 1) + ".");
+		screen nw = make_news(ns);
+		walk(nw, "News");
+		const panel &np = nw.tabs[0].panels[0];
+		int heads = 0, indented = 0;
+		for (auto &i : np.items) { heads += i.k == kind::header; indented += i.label.rfind("  ", 0) == 0; }
+		screen nd = nw;
+		nd.handle(ev(act::page_down));
+		CHECK(np.title == "NBA JAM Recomp 2026.12.01  2026-12-01" && np.items[0].label == "NEW VERSION - YOU HAVE 2026.11.06" && heads == 4 && indented >= 1 && text_of(nw, 0, 0).find("Fix number 30.") != std::string::npos &&
+		      int(np.items.size()) > nw.rows_visible(0) && nd.tabs[0].panels[0].scroll > 0, "News: the notes with their headings, long entries wrapped, and it scrolls");
+		news_state off; off.on = false;
+		news_state none;
+		CHECK(text_of(make_news(off), 0, 0).find("Settings") != std::string::npos && text_of(make_news(none), 0, 0).find("No news") != std::string::npos, "News: says when it is switched off, and when there is nothing to show");
+
+		theme th2;
+		as.pad = "Xbox Wireless Controller"; as.player = 0;
+		screen ab2 = make_about(as), ab3 = make_about(as), ab4 = make_about(as);
+		ab2.cur_tab = 1; ab2.fix_focus(); ab3.cur_tab = 2; ab3.fix_focus(); ab4.cur_tab = 3; ab4.fix_focus();
+		os.typing = 0; os.available = true;
+		screen shots[9] = { make_online(os), lb, jn, make_about(as), ab2, ab3, ab4, nw, nd };
+		static const char *files[9] = { "online_1.png", "online_2_lobby_host.png", "online_3_lobby_join.png", "about_1.png", "about_2_controls.png", "about_3_keys.png", "about_4_credits.png", "news_1.png", "news_2_scrolled.png" };
+		for (int i = 0; i < 9; i++)
+		{
+			canvas cv(screen::kW, screen::kH);
+			shots[i].draw(cv, th2, i == 1 ? device::xbox : device::keyboard, 0);
+			write_png(out, files[i], cv);
+		}
+	}
+
 	printf("\n%d checks, %d failed\n", g_run, g_fail);
 	return g_fail ? 1 : 0;
 }

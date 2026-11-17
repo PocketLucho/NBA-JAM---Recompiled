@@ -204,7 +204,13 @@ private:
 	void settings_frame();
 	// the screens rebuilt on the menu toolkit (roadmap U3): the game picker and Settings
 	ui::input m_ui_in;
-	ui::screen m_picker, m_settings, m_mods_scr, m_ctl_scr;
+	ui::screen m_picker, m_settings, m_mods_scr, m_ctl_scr, m_online_scr, m_lobby_scr, m_about_scr, m_news_scr;
+	int m_edit_what = 0;               // online: 1 the address is being typed, 2 the port
+	bool m_edit_join = false;          // join as soon as the address is typed
+	int m_about_player = 0;
+	bool m_news_shown = false;         // the News screen was built with a release to show
+	void ui_show(ui::screen &s);
+	ui::about_state about_now();
 	ui::mods_state mods_now();
 	view_rect m_ui_shown;                 // where the menu picture is in the window, for the mouse
 	int m_ui_ww = 1, m_ui_wh = 1;
@@ -257,7 +263,6 @@ private:
 	news_feed m_news;
 	news_item m_news_item;          // latest published release, once known
 	bool m_news_new = false;        // ...and it is newer than this program
-	int m_news_scroll = 0;
 	void poll_news();
 	void news_frame();
 	void choose_data_folder();
@@ -311,7 +316,6 @@ private:
 
 	// netplay
 	netplay m_net;
-	int m_net_sel = 0;
 	bool m_editing = false;
 	std::string m_edit;
 	bool m_net_game = false;           // current game runs under netplay
@@ -477,7 +481,7 @@ void app::poll_events()
 	{
 		// the rebuilt screens take their input through the toolkit's one layer (U1.3); releases
 		// are always passed on, so nothing stays "held" after a screen change
-		const bool toolkit = (m_screen == screen::menu || m_screen == screen::settings || m_screen == screen::mods || m_screen == screen::controls) &&
+		const bool toolkit = m_screen != screen::game &&
 		                     m_capture < 0 && !m_editing;      // not while a button is being bound or a name typed
 		if (toolkit || e.type == SDL_KEYUP || e.type == SDL_CONTROLLERBUTTONUP || e.type == SDL_MOUSEBUTTONUP || e.type == SDL_FINGERUP)
 		{
@@ -886,7 +890,7 @@ ui::picker_state app::picker_now()
 void app::open_online()
 {
 	m_screen = screen::net_menu;
-	m_net_sel = 0;
+	m_online_scr = ui::screen();
 	m_local_ips = net_local_ipv4();
 }
 
@@ -937,8 +941,8 @@ void app::menu_frame()
 				return;
 			}
 			else if (r.id == ui::pk_controls) { m_ctl_scr = ui::screen(); m_screen = screen::controls; return; }
-			else if (r.id == ui::pk_news) { m_screen = screen::news; m_news_scroll = 0; return; }
-			else if (r.id == ui::pk_about) { m_screen = screen::about; return; }
+			else if (r.id == ui::pk_news) { m_news_scr = ui::screen(); m_screen = screen::news; return; }
+			else if (r.id == ui::pk_about) { m_about_scr = ui::screen(); m_screen = screen::about; return; }
 			else if (r.id == ui::pk_rescan)
 			{
 				m_cat->rescan();
@@ -1137,6 +1141,22 @@ void app::mods_frame()
 	SDL_Delay(8);
 }
 
+static const char *const act_en[kNumActions] = { "Up", "Down", "Left", "Right", "Shoot", "Pass", "Turbo", "Start", "Coin",
+                                                 "Shove", "Turbo shot", "Shortcut 1", "Shortcut 2" };
+
+// The end of every rebuilt screen's frame: the theme of the highlighted game, the screen,
+// a program message over it if there is one.
+void app::ui_show(ui::screen &s)
+{
+	const unsigned now = SDL_GetTicks();
+	follow_theme(game_list()[size_t(std::clamp(m_sel, 0, int(game_list().size()) - 1))].id, now);
+	canvas cv(ui::screen::kW, ui::screen::kH);
+	s.draw(cv, m_theme, m_ui_in.last_device(), now);
+	if (!m_message.empty() && now < m_message_until) menu_message(cv, m_message);
+	present(cv.px.data(), cv.w, cv.h, false);
+	SDL_Delay(8);
+}
+
 void app::poll_news()
 {
 	news_item n;
@@ -1153,109 +1173,83 @@ void app::poll_news()
 void app::news_frame()
 {
 	poll_news();
-	if (m_menu_back || m_menu_ok) { m_screen = screen::menu; return; }
-	canvas cv(400, 300);
-	draw_background(cv);
-	cv.text(cv.w / 2 - cv.text_w("NEWS", 2) / 2, 8, "NEWS", 0xffff8020, 2);
-	const int cols = (cv.w - 24) / 8, top = 58, rows = (cv.h - 26 - top) / 10;
-	int y = 30;
-	if (!m_cfg.news)
+	ui_frame_begin();
+	// built when the screen opens, and again if the answer arrives while it is open
+	const bool have = m_cfg.news && m_news_item.ok;
+	if (m_news_scr.tabs.empty() || have != m_news_shown)
 	{
-		cv.text_wrap(12, y, "News is switched off. Turn it on with Left/Right on the main menu to see the latest release here.", 0xffd8e0ff);
-	}
-	else if (!m_news_item.ok)
-	{
-		cv.text_wrap(12, y, "No news. Either there is no connection, or no version has been published yet.", 0xffd8e0ff);
-	}
-	else
-	{
-		cv.text(12, y, (m_news_item.name + (m_news_item.date.empty() ? "" : "  " + m_news_item.date)).substr(0, size_t(cols)), 0xffffe080);
-		y += 12;
-		if (m_news_new) cv.text(12, y, ("NEW VERSION - you have " + std::string(app_version())).substr(0, size_t(cols)), 0xffffe040);
-		else cv.text(12, y, ("You have " + std::string(app_version()) + ": up to date").substr(0, size_t(cols)), 0xff80ff80);
-		// wrap the notes to the screen width
-		std::vector<std::string> lines;
-		for (std::string l : news_plain_lines(m_news_item.body))
+		ui::news_state st;
+		st.on = m_cfg.news;
+		st.ok = m_news_item.ok;
+		st.is_new = m_news_new;
+		st.name = m_news_item.name;
+		st.date = m_news_item.date;
+		st.version = app_version();
+		if (have)
 		{
-			if (l.empty()) { lines.push_back(""); continue; }
-			bool item = l.rfind("- ", 0) == 0;
-			while (int(l.size()) > cols)
-			{
-				size_t cut = l.rfind(' ', size_t(cols));
-				if (cut == std::string::npos || cut < 8) cut = size_t(cols);
-				lines.push_back(l.substr(0, cut));
-				l = (item ? "  " : "") + l.substr(l[cut] == ' ' ? cut + 1 : cut);
-			}
-			lines.push_back(l);
+			st.lines = news_plain_lines(m_news_item.body);
+			// the Releases page, without "https://" and the tag part, so that it fits on one line
+			st.page = m_news_item.url;
+			if (st.page.find("://") != std::string::npos) st.page = st.page.substr(st.page.find("://") + 3);
+			if (st.page.find("/tag/") != std::string::npos) st.page = st.page.substr(0, st.page.find("/tag/"));
 		}
-		int max_scroll = std::max(0, int(lines.size()) - rows);
-		if (m_menu_down) m_news_scroll++;
-		if (m_menu_up) m_news_scroll--;
-		m_news_scroll = std::clamp(m_news_scroll, 0, max_scroll);
-		for (int i = 0; i < rows && i + m_news_scroll < int(lines.size()); i++)
-		{
-			const std::string &l = lines[size_t(i + m_news_scroll)];
-			bool head = !l.empty() && l == [&] { std::string u = l; for (char &c : u) c = char(toupper(static_cast<unsigned char>(c))); return u; }() && l[0] != '-' && l[0] != ' ';
-			cv.text(12, top + i * 10, l, head ? 0xff80ff80 : 0xffd8e0ff);
-		}
-		if (m_news_scroll > 0) cv.text(cv.w - 16, top, "^", 0xffffffff);
-		if (m_news_scroll < max_scroll) cv.text(cv.w - 16, top + (rows - 1) * 10, "v", 0xffffffff);
-		// the Releases page, without "https://" and the tag part, so that it fits on one line
-		std::string page = m_news_item.url;
-		if (page.find("://") != std::string::npos) page = page.substr(page.find("://") + 3);
-		if (page.find("/tag/") != std::string::npos) page = page.substr(0, page.find("/tag/"));
-		cv.text(8, cv.h - 21, page.substr(0, size_t(cols + 2)), 0xffffc040);
+		m_news_scr = ui::make_news(st);
+		m_news_shown = have;
 	}
-	cv.text(8, cv.h - 11, "Up/Down: scroll   Enter / Esc: back", 0xffb0b0b0);
-	present(cv.px.data(), cv.w, cv.h, false);
-	SDL_Delay(16);
+	ui::event ev;
+	while (m_ui_in.next(ev))
+		if (ev.a == ui::act::confirm || m_news_scr.handle(ev).what == ui::result::back) { m_screen = screen::menu; return; }
+	ui_show(m_news_scr);
+}
+
+// About and help (U3.6). The Controls tab is made from what is set now: the keys of the
+// settings file and the controller profile each player has for the highlighted game.
+ui::about_state app::about_now()
+{
+	ui::about_state st;
+	st.version = app_version();
+	st.build = std::string(app_commit()) + "  " + app_build_date();
+	st.data_dir = m_base;
+	st.portable = m_paths.portable;
+	if (m_cfg.news && m_news_item.ok) { st.latest = m_news_item.tag; st.latest_new = m_news_new; }
+	const int p = std::clamp(m_about_player, 0, 3);
+	st.player = p;
+	const game_info &g = game_list()[size_t(std::clamp(m_sel, 0, int(game_list().size()) - 1))];
+	st.game = g.title;
+	const std::string *name = &m_cfg.pad_profile[p];
+	auto it = m_cfg.game_profiles.find(g.id);
+	if (it != m_cfg.game_profiles.end() && !it->second[size_t(p)].empty() && m_profiles.find(it->second[size_t(p)]) >= 0) name = &it->second[size_t(p)];
+	const pad_profile &prof = m_profiles.get(*name);
+	st.profile = prof.name;
+	if (size_t(p) < m_pads.size() && m_pads[size_t(p)]) { const char *pn = SDL_GameControllerName(m_pads[size_t(p)]); st.pad = pn ? pn : "?"; }
+	for (int a = 0; a < kNumActions; a++)
+	{
+		ui::about_state::row r;
+		r.action = act_en[a];
+		if (a < kNumButtons) r.key = SDL_GetScancodeName(*key_slot(m_cfg.keys[p], a));
+		r.binding = prof.action_text(a);
+		// one of the two free shortcuts: which cabinet buttons it presses
+		if (a >= A_CUSTOM1 && prof.combo[a - kNumButtons]) r.action += " = " + combo_mask_text(prof.combo[a - kNumButtons]);
+		st.controls.push_back(r);
+	}
+	return st;
 }
 
 void app::about_frame()
 {
-	if (m_menu_back || m_menu_ok) { m_screen = screen::menu; return; }
-	canvas cv(400, 300);
-	draw_background(cv);
-	cv.text(cv.w / 2 - cv.text_w("NBA JAM RECOMP", 2) / 2, 8, "NBA JAM RECOMP", 0xffff8020, 2);
-	std::string ver = std::string("Version ") + app_version();
-	cv.text(cv.w / 2 - cv.text_w(ver) / 2, 26, ver, 0xffffffff);
-	std::string build = std::string("build ") + app_commit() + "  " + app_build_date();
-	cv.text(cv.w / 2 - cv.text_w(build) / 2, 36, build, 0xffa0a0c0);
-	int y = 50;
+	poll_news();
+	ui_frame_begin();
+	if (m_about_scr.tabs.empty()) m_about_scr = ui::make_about(about_now());
+	ui::event ev;
+	while (m_ui_in.next(ev))
 	{
-		// where the user's files are: the question people ask after installing
-		std::string where = std::string(m_paths.portable ? "Data (portable): " : "Data: ") + m_base;
-		y = cv.text_wrap(12, y, where, 0xffa0a0c0);
-		poll_news();
-		if (m_cfg.news && m_news_item.ok)
-			y = cv.text_wrap(12, y, "Latest release: " + m_news_item.tag + (m_news_new ? "  (new - see News)" : "  (you are up to date)"), m_news_new ? 0xffffe040 : 0xff80ff80);
-		y += 3;
+		ui::result r = m_about_scr.handle(ev);
+		if (r.what == ui::result::back) { m_screen = screen::menu; return; }
+		if (r.what == ui::result::changed && r.id == ui::ab_player)
+			if (const ui::item *it = m_about_scr.find(r.id)) m_about_player = it->choice;
 	}
-	auto line = [&](const std::string &s, u32 c = 0xffd8e0ff) { y = cv.text_wrap(12, y, s, c); };
-	auto gap = [&]() { y += 3; };
-	line("Created by Pocket_lucho with Claude (Anthropic)", 0xffffe080);
-	gap();
-	line("A recompilation of Midway's NBA JAM saga from the original source code that was made public.");
-	gap();
-	line("Built from source:", 0xff80ff80);
-	line(" T.E. rev 4.0 (identical to the final ROM)");
-	line(" T.E. Special Edition rev 5.02 (identical)");
-	line(" Maximum Hangtime 1.3 (identical to the ROM)");
-	gap();
-	line("Tools: own TI GSPA assembler and Midway's LOAD2 (emu2). Emulation: MAME cores (TMS34010, 6809, ADSP-2105) and ymfm.", 0xffc0c8e0);
-	gap();
-	line("Sources: github.com/historicalsource and Asure", 0xffb0b0b0);
-	line("github.com/PocketLucho/NBA-JAM---Recompiled", 0xffb0b0b0);
-	line("Releases: github.com/richvam/NBA-JAMs-Recomp", 0xffb0b0b0);
-	gap();
-	line("If you want to support me, go to", 0xffffc040);
-	line("https://buymeacoffee.com/pocket_lucho", 0xffffc040);
-	gap();
-	line("NBA JAM (c) Midway. Non-profit fan project.", 0xffb0b0b0);
-	std::string back = "Enter / Esc: back";
-	cv.text(cv.w / 2 - cv.text_w(back) / 2, cv.h - 11, back, 0xffb0b0b0);
-	present(cv.px.data(), cv.w, cv.h, false);
-	SDL_Delay(16);
+	ui::update_about(m_about_scr, about_now());
+	ui_show(m_about_scr);
 }
 
 // applies a game setup bundle (from an import): the profile of each player for one game or all games
@@ -1277,8 +1271,6 @@ void app::apply_setup(const import_result &r)
 // so a controller alone is enough.
 void app::controls_frame()
 {
-	static const char *act_en[kNumActions] = { "Up", "Down", "Left", "Right", "Shoot", "Pass", "Turbo", "Start", "Coin",
-	                                           "Shove", "Turbo shot", "Shortcut 1", "Shortcut 2" };
 	// button sets a custom shortcut can be given; any set can be written in the file
 	static const unsigned kMasks[] = { 0, 1u << A_SHOOT, 1u << A_PASS, 1u << A_TURBO, (1u << A_SHOOT) | (1u << A_PASS),
 	                                   (1u << A_TURBO) | (1u << A_SHOOT), (1u << A_TURBO) | (1u << A_PASS),
@@ -1455,80 +1447,89 @@ void app::controls_frame()
 	SDL_Delay(8);
 }
 
+// Online (U3.5): host or join, the host's address, the port and the input delay.
 void app::net_menu_frame()
 {
+	ui_frame_begin();
+	const unsigned now = SDL_GetTicks();
 	const game_info &g = game_list()[size_t(m_sel)];
-	const int nopt = 5;
+	auto state = [&]()
+	{
+		ui::online_state st;
+		st.game = g.title;
+		st.available = m_avail[size_t(m_sel)];
+		st.address = m_cfg.net_host;
+		st.port = m_cfg.net_port;
+		st.delay = m_cfg.net_delay;
+		st.local_ips = m_local_ips;
+		st.typing = m_editing ? m_edit_what : 0;
+		st.typed = m_edit;
+		return st;
+	};
+	auto type = [&](int what, const std::string &start, bool join)
+	{
+		m_edit = start; m_edit_what = what; m_edit_join = join; m_editing = true;
+		SDL_StartTextInput();
+	};
+	if (m_online_scr.tabs.empty()) m_online_scr = ui::make_online(state());
 	bool join_now = false;
 	if (m_editing)
 	{
-		if (m_menu_ok) { m_editing = false; SDL_StopTextInput(); m_cfg.net_host = m_edit; join_now = !m_edit.empty(); }
+		// the address or the port is being typed: Enter or A takes it, Esc or B cancels
+		if (m_menu_ok)
+		{
+			m_editing = false;
+			SDL_StopTextInput();
+			if (m_edit_what == 1) { m_cfg.net_host = m_edit; join_now = m_edit_join && !m_edit.empty(); }
+			else
+			{
+				int port = 0;
+				bool digits = !m_edit.empty() && m_edit.size() <= 5;
+				for (char c : m_edit) digits = digits && c >= '0' && c <= '9';
+				if (digits) port = atoi(m_edit.c_str());
+				if (port >= 1024 && port <= 65535) m_cfg.net_port = port;
+				else message("The port is a number from 1024 to 65535", 4000);
+			}
+		}
 		else if (m_menu_back) { m_editing = false; SDL_StopTextInput(); }
 	}
 	else
 	{
-		if (m_menu_back) { m_screen = screen::menu; return; }
-		if (m_menu_up) m_net_sel = (m_net_sel + nopt - 1) % nopt;
-		if (m_menu_down) m_net_sel = (m_net_sel + 1) % nopt;
-		if (m_net_sel == 1 && (m_menu_left || m_menu_right)) { m_edit = m_cfg.net_host; m_editing = true; SDL_StartTextInput(); }
-		if (m_net_sel == 2 && (m_menu_left || m_menu_right)) m_cfg.net_port = std::clamp(m_cfg.net_port + (m_menu_right ? 1 : -1), 1024, 65535);
-		if (m_net_sel == 3 && (m_menu_left || m_menu_right)) m_cfg.net_delay = std::clamp(m_cfg.net_delay + (m_menu_right ? 1 : -1), 1, 10);
-		if (m_menu_ok)
+		ui::event ev;
+		while (m_ui_in.next(ev))
 		{
-			std::string err;
-			if (m_net_sel == 0)
+			ui::result r = m_online_scr.handle(ev);
+			if (r.what == ui::result::back) { m_screen = screen::menu; return; }
+			if (r.what == ui::result::changed && r.id == ui::on_delay)
 			{
+				if (const ui::item *it = m_online_scr.find(r.id)) m_cfg.net_delay = std::clamp(int(it->value + 0.5f), 1, 10);
+			}
+			if (r.what != ui::result::activated) continue;
+			if (r.id == ui::on_host)
+			{
+				std::string err;
 				if (!m_avail[size_t(m_sel)]) message(m_why[size_t(m_sel)], 6000);
 				else if (!m_net.host(u16(m_cfg.net_port), err)) message("Network: " + err, 6000);
-				else { m_screen = screen::net_lobby; return; }
+				else { m_lobby_scr = ui::screen(); m_screen = screen::net_lobby; return; }
 			}
-			if (m_net_sel == 1)
+			else if (r.id == ui::on_join)
 			{
-				if (m_cfg.net_host.empty()) { m_edit.clear(); m_editing = true; SDL_StartTextInput(); }
-				else join_now = true;
+				if (m_cfg.net_host.empty()) { type(1, "", true); break; }
+				join_now = true;
 			}
-			if (m_net_sel == 4) { m_screen = screen::menu; return; }
+			else if (r.id == ui::on_address) { type(1, m_cfg.net_host, false); break; }
+			else if (r.id == ui::on_port) { type(2, std::to_string(m_cfg.net_port), false); break; }
 		}
 	}
 	if (join_now)
 	{
 		std::string err;
 		if (!m_net.join(m_cfg.net_host, u16(m_cfg.net_port), err)) message("Network: " + err, 6000);
-		else { m_screen = screen::net_lobby; return; }
+		else { m_lobby_scr = ui::screen(); m_screen = screen::net_lobby; return; }
 	}
-
-	canvas cv(400, 300);
-	draw_background(cv);
-	std::string head = "ONLINE GAME";
-	cv.text(cv.w / 2 - cv.text_w(head, 2) / 2, 12, head, 0xffff8020, 2);
-	cv.text(16, 36, g.title, 0xffffe080, 1, false);
-	std::string join = "Join: ";
-	std::string ip = m_editing ? m_edit + ((SDL_GetTicks() / 400) % 2 ? "_" : " ") : (m_cfg.net_host.empty() ? "(type the IP)" : m_cfg.net_host);
-	size_t room = size_t((cv.w - 24) / 8) - join.size();
-	if (ip.size() > room) ip = ip.substr(ip.size() - room);       // keep the end (the cursor) visible
-	const std::string opts[nopt] = {
-		"Host a game (host, P1)",
-		join + ip,
-		"UDP port: < " + std::to_string(m_cfg.net_port) + " >",
-		"Input delay: < " + std::to_string(m_cfg.net_delay) + " frames >",
-		"Back",
-	};
-	for (int i = 0; i < nopt; i++)
-	{
-		int y = 56 + i * 20;
-		if (i == m_net_sel) cv.blend(12, y - 4, cv.w - 24, 16, 0xffffa020, 90);
-		cv.text(20, y, opts[i], i == m_net_sel ? 0xffffffff : 0xffc8d8ff);
-	}
-	int y = 162;
-	y = cv.text_wrap(12, y, "The host picks the game (the one selected in the menu) and must open the UDP port on the router, " "or use a virtual LAN (Tailscale, ZeroTier, Radmin VPN...). Everybody needs the same ROMs. " "Delay 3-4 on a LAN, 5-7 over the internet; the host decides.", 0xffa0a0a0);
-	std::string ips;
-	for (auto &s : m_local_ips) ips += (ips.empty() ? "" : ", ") + s;
-	y = cv.text_wrap(12, y + 3, "Your local IP: " + (ips.empty() ? std::string("?") : ips), 0xff80ff80);
-	cv.text_wrap(12, y + 3, m_editing ? "Type the IP and press Enter (Ctrl+V pastes)"
-	                                  : "Enter: select  Left/Right: change  Esc: back", 0xffb0b0b0);
-	if (!m_message.empty() && SDL_GetTicks() < m_message_until) menu_message(cv, m_message);
-	present(cv.px.data(), cv.w, cv.h, false);
-	SDL_Delay(16);
+	ui::update_online(m_online_scr, state());
+	if (m_editing) m_online_scr.toast(m_edit_what == 1 ? "Type the address. Enter or A: OK. Ctrl+V pastes" : "Type the port. Enter or A: OK. Esc or B: cancel", now, 200);
+	ui_show(m_online_scr);
 }
 
 // Interim netplay guard (roadmap 0.3): scripts that run every frame or write RAM are not
@@ -1552,11 +1553,48 @@ void app::net_lobby_frame()
 		m_screen = screen::net_menu;
 		return;
 	}
-	if (m_menu_back) { m_net.stop(); m_screen = screen::net_menu; return; }
+	ui_frame_begin();
 	const game_info &g = game_list()[size_t(m_sel)];
 	bool host = m_net.role() == netplay::mode::host;
+	auto state = [&]()
+	{
+		ui::lobby_state st;
+		st.host = host;
+		st.game = g.title;
+		st.local_ips = m_local_ips;
+		st.port = m_cfg.net_port;
+		st.delay = m_cfg.net_delay;
+		st.address = m_cfg.net_host;
+		st.slot = m_net.local_slot();
+		st.ping = m_net.ping_ms();
+		st.count = m_net.players();
+		st.receiving = m_net.stage() == netplay::phase::transfer;
+		if (host)
+		{
+			st.players.push_back({ "Player 1", "you (host)" });
+			// a peer's line is its slot, then its address, ping and whether it is ready
+			for (const std::string &p : m_net.peer_list())
+			{
+				size_t sp = p.find("  ");
+				std::string slot = p.substr(0, sp), rest = sp == std::string::npos ? "" : p.substr(sp + 2);
+				st.players.push_back({ "Player " + (slot.size() > 1 ? slot.substr(1) : slot), rest });
+			}
+		}
+		return st;
+	};
+	if (m_lobby_scr.tabs.empty()) m_lobby_scr = ui::make_lobby(state());
+	bool start = false;
+	ui::event ev;
+	while (m_ui_in.next(ev))
+	{
+		ui::result r = m_lobby_scr.handle(ev);
+		if (r.what == ui::result::back || (r.what == ui::result::activated && r.id == ui::lb_leave)) { m_net.stop(); m_screen = screen::net_menu; return; }
+		if (r.what == ui::result::activated && r.id == ui::lb_start) start = true;
+		if (r.what == ui::result::changed && r.id == ui::lb_delay)
+			if (const ui::item *it = m_lobby_scr.find(r.id)) m_cfg.net_delay = std::clamp(int(it->value + 0.5f), 1, 10);
+	}
 
-	if (host && m_menu_ok)
+	if (host && start)
 	{
 		std::string blocked = net_mod_block(g.id);
 		if (!blocked.empty()) { message(blocked, 8000); return; }
@@ -1598,46 +1636,8 @@ void app::net_lobby_frame()
 		return;
 	}
 
-	canvas cv(400, 300);
-	draw_background(cv);
-	std::string head = "ONLINE GAME";
-	cv.text(cv.w / 2 - cv.text_w(head, 2) / 2, 12, head, 0xffff8020, 2);
-	int y = 40;
-	auto line = [&](const std::string &s, u32 c = 0xffffffff) { y = cv.text_wrap(16, y, s, c, 12, true); };
-	if (host)
-	{
-		line(std::string("Host: ") + g.title, 0xffffe080);
-		std::string ips;
-		for (auto &s : m_local_ips) ips += (ips.empty() ? "" : ", ") + s;
-		line("IP: " + ips, 0xff80ff80);
-		line("UDP port: " + std::to_string(m_cfg.net_port) + "   delay: " + std::to_string(m_cfg.net_delay), 0xff80ff80);
-		y += 6;
-		line("Players: " + std::to_string(m_net.players()) + " / 4");
-		line("P1  you (host)", 0xffc8d8ff);
-		for (auto &p : m_net.peer_list()) line(p, 0xffc8d8ff);
-		y = 240;
-		line("Enter: start     Esc: cancel", 0xffb0b0b0);
-		line("(you can start alone to try it)", 0xff808080);
-	}
-	else
-	{
-		line("Connecting to " + m_cfg.net_host + ":" + std::to_string(m_cfg.net_port), 0xffffe080);
-		y += 6;
-		if (m_net.local_slot() < 0) line("Waiting for an answer" + std::string((SDL_GetTicks() / 400) % 4, '.'));
-		else
-		{
-			line("Connected as player " + std::to_string(m_net.local_slot() + 1) + "  (" + std::to_string(m_net.ping_ms()) + " ms)", 0xff80ff80);
-			line("Players: " + std::to_string(m_net.players()));
-			line(m_net.stage() == netplay::phase::transfer ? "Receiving the game data..."
-			                                               : "Waiting for the host to start...");
-		}
-		y = 240;
-		line("You use the P1 keys / first pad", 0xffb0b0b0);
-		line("Esc: cancel", 0xffb0b0b0);
-	}
-	if (!m_message.empty() && SDL_GetTicks() < m_message_until) menu_message(cv, m_message);
-	present(cv.px.data(), cv.w, cv.h, false);
-	SDL_Delay(10);
+	ui::update_lobby(m_lobby_scr, state());
+	ui_show(m_lobby_scr);
 }
 
 bool app::game_frame()

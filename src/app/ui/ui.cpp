@@ -271,6 +271,18 @@ std::vector<screen::slot> screen::slots() const
 	return out;
 }
 
+// A panel of text only (nothing to select) is read by scrolling it with the directions.
+bool screen::scroll_text(int by)
+{
+	panel &p = *cur();
+	for (const auto &i : p.items) if (i.focusable()) return false;
+	int cols = std::max(1, p.cols), total = (int(p.items.size()) + cols - 1) / cols;
+	int ns = std::clamp(p.scroll + by, 0, std::max(0, total - rows_visible(cur_panel)));
+	if (ns == p.scroll) return false;
+	p.scroll = ns;
+	return true;
+}
+
 void screen::keep_visible(panel &p) const
 {
 	int idx = int(&p - &panels()[0]);
@@ -492,6 +504,9 @@ result screen::handle(const event &e)
 			if (ns == p.scroll) return r;
 			// focus follows the view if it would be left outside, but never onto a header
 			int f = p.focus;
+			bool text_only = true;
+			for (const auto &i : p.items) text_only = text_only && !i.focusable();
+			if (text_only) { p.scroll = ns; return r; }
 			if (f / cols < ns || f / cols >= ns + rows)
 			{
 				f = -1;
@@ -533,8 +548,8 @@ result screen::handle(const event &e)
 	case act::back: r.what = result::back; break;
 	case act::tab_prev: set_tab(cur_tab - 1); break;
 	case act::tab_next: set_tab(cur_tab + 1); break;
-	case act::up: if (cur() && !move_in_panel(cur()->cols > 1 ? -cur()->cols : -1)) move_to_panel(0, -1); break;
-	case act::down: if (cur() && !move_in_panel(cur()->cols > 1 ? cur()->cols : 1)) move_to_panel(0, 1); break;
+	case act::up: if (cur() && !move_in_panel(cur()->cols > 1 ? -cur()->cols : -1) && !scroll_text(-1)) move_to_panel(0, -1); break;
+	case act::down: if (cur() && !move_in_panel(cur()->cols > 1 ? cur()->cols : 1) && !scroll_text(1)) move_to_panel(0, 1); break;
 	case act::left:
 	case act::right:
 	{
@@ -543,8 +558,8 @@ result screen::handle(const event &e)
 		if (cur() && !(cur()->cols > 1 && move_in_panel(d))) move_to_panel(d, 0);
 		break;
 	}
-	case act::page_up: if (cur()) move_in_panel(-rows_visible(cur_panel) * std::max(1, cur()->cols)); break;
-	case act::page_down: if (cur()) move_in_panel(rows_visible(cur_panel) * std::max(1, cur()->cols)); break;
+	case act::page_up: if (cur() && !move_in_panel(-rows_visible(cur_panel) * std::max(1, cur()->cols))) scroll_text(-(rows_visible(cur_panel) - 1)); break;
+	case act::page_down: if (cur() && !move_in_panel(rows_visible(cur_panel) * std::max(1, cur()->cols))) scroll_text(rows_visible(cur_panel) - 1); break;
 	case act::confirm: if (it && it->focusable()) return press(*it); break;
 	case act::context: if (it && it->focusable()) { r.what = result::context; r.id = it->id; } break;
 	default: break;
@@ -635,9 +650,10 @@ void screen::draw(canvas &cv, const theme &th, device dev, unsigned now_ms) cons
 		if (it.k == kind::toggle) val = it.on ? "ON" : "OFF";
 		else if (it.k == kind::picker) val = "< " + (it.choices.empty() ? std::string("-") : it.choices[size_t(it.choice)]) + " >";
 		else if (it.k == kind::slider) { char b[16]; snprintf(b, sizeof(b), it.step >= 1 ? "%.0f" : "%.1f", double(it.value)); val = b; }
-		else if (it.k == kind::button) val = it.value_text;
+		else if (it.k == kind::button || it.k == kind::label) val = it.value_text;
 		int bar_w = it.k == kind::slider ? int(s.r.w * 0.45f) - 34 : 0;
-		std::string v = fit_px(val, it.k == kind::slider ? 30 : room / 2, wide);
+		// a line of text gives its value all the room its name leaves
+		std::string v = fit_px(val, it.k == kind::slider ? 30 : it.k == kind::label ? std::max(room / 2, room - wide(it.label) - 12) : room / 2, wide);
 		int label_px = room - (v.empty() ? 0 : wide(v) + 8);
 		if (bar_w > 8) label_px = w - 4 - 32 - bar_w - 12;      // up to the slider's bar, with a gap
 		std::string t = foc ? marquee_px(it.label, label_px, wide, now_ms) : fit_px(it.label, label_px, wide);

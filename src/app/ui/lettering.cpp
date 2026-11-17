@@ -417,6 +417,10 @@ void draw_text(canvas &cv, int x, int y, const std::string &s, const rom_art::fo
 			// letters stand on one line; a taller one (a Q's tail) hangs below it
 			const rom_art::picture &g = f.glyph[static_cast<unsigned char>(ch)];
 			int gy = y + std::max(0, f.cap_h - g.h);
+			// the games place these by a per-letter offset that is not read: quote marks
+			// belong at the top of the line and dashes in its middle
+			if (g.h < f.cap_h && (ch == 39 || ch == 34 || ch == 96 || ch == 94 || ch == 42)) gy = y;
+			else if (g.h < f.cap_h && (ch == 45 || ch == 43 || ch == 61 || ch == 126)) gy = y + (f.cap_h - g.h) / 2;
 			for (int py = 0; py < g.h; py++) for (int px = 0; px < g.w; px++) if (g.at(px, py) >> 24) dot(cv, x + px, gy + py, tinted(g.at(px, py)));
 			x += g.w + 1;
 			continue;
