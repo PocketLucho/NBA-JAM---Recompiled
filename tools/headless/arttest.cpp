@@ -15,6 +15,7 @@
 #include "ui/art_view.h"
 #include "ui/gallery.h"
 #include "ui/themes.h"
+#include "ui/screens.h"
 #include "miniz.h"
 #include <cstdio>
 #include <cstring>
@@ -156,6 +157,37 @@ static int real_roms(const std::string &base, const std::string &out)
 		canvas cv(ui::screen::kW, ui::screen::kH);
 		scr.draw(cv, half, ui::device::xbox, 0);
 		write_png(out, std::string(g.id) + "_theme_halfway.png", cv);
+	}
+	// the game picker with each game highlighted, in its theme (the check of U2.3 and U3.1)
+	{
+		ui::picker_state st;
+		for (const game_info &g : game_list())
+		{
+			ui::picker_game pg;
+			pg.title = g.title; pg.revision = g.subtitle; pg.board = g.hardware; pg.from_source = g.from_source;
+			pg.available = cat.available(g, pg.why);
+			std::string t = g.title;
+			pg.big = { t };
+			if (t.rfind("NBA JAM T", 0) == 0) pg.big = { "NBA JAM", std::string(g.id) == "nbajamse" ? "T.E. SE" : "T.E." };
+			else if (t == "NBA Hangtime") pg.big = { "NBA", "HANGTIME" };
+			else if (t == "NBA Maximum Hangtime") pg.big = { "MAXIMUM", "HANGTIME" };
+			st.games.push_back(pg);
+		}
+		st.version = "test"; st.roms_dir = base + "/roms";
+		ui::screen pk = ui::make_picker(st);
+		for (size_t i = 0; i < st.games.size(); i++)
+		{
+			roms r;
+			art_set s = cat.art_roms(game_list()[i], r) ? read(r) : art_set();
+			ui::theme t = ui::make_theme(ui::load_theme_spec(ui::theme_id_for_game(game_list()[i].id), ""), &s);
+			ui::update_picker(pk, st, int(i));
+			canvas cv(ui::screen::kW, ui::screen::kH);
+			pk.draw(cv, t, ui::device::xbox, 0);
+			ui::draw_picker_name(cv, pk, t, st.games[i], s.empty() ? nullptr : &s);
+			write_png(out, std::string(game_list()[i].id) + "_picker.png", cv);
+			ui::event down; down.a = ui::act::down;
+			pk.handle(down);
+		}
 	}
 	printf("\n%d of %zu games gave ROM art\n", found, game_list().size());
 	return 0;

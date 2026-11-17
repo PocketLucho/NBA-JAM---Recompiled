@@ -9,6 +9,7 @@
 #include "ui/gallery.h"
 #include "ui/art_view.h"
 #include "ui/themes.h"
+#include "ui/screens.h"
 #include "ui/ui_sdl.h"
 #include "miniz.h"
 #include "gl_present.h"
@@ -195,11 +196,30 @@ private:
 	bool m_gallery = false, m_rom_art = false;
 	void gallery_loop();
 	void rom_art_loop();
-	enum class screen { menu, net_menu, net_lobby, game, about, mods, mod_detail, controls, news };
+	enum class screen { menu, settings, net_menu, net_lobby, game, about, mods, mod_detail, controls, news };
 
 	void open_window();
 	void present(const u32 *pixels, int w, int h, bool game);
 	void menu_frame();
+	void settings_frame();
+	// the screens rebuilt on the menu toolkit (roadmap U3): the game picker and Settings
+	ui::input m_ui_in;
+	ui::screen m_picker, m_settings;
+	view_rect m_ui_shown;                 // where the menu picture is in the window, for the mouse
+	int m_ui_ww = 1, m_ui_wh = 1;
+	void ui_frame_begin();
+	ui::picker_state picker_now();
+	ui::settings_state settings_now();
+	void apply_settings(const ui::settings_state &want);
+	void open_online();
+	// the theme follows the highlighted game, with a cross-fade (U2.3)
+	std::map<std::string, rom_art::art_set> m_arts;
+	ui::theme m_theme, m_theme_from, m_theme_to;
+	std::string m_theme_game;
+	unsigned m_theme_start = 0;
+	bool m_theme_fading = false;
+	const rom_art::art_set *art_of(const std::string &game_id);
+	void follow_theme(const std::string &game_id, unsigned now);
 	void net_menu_frame();
 	void net_lobby_frame();
 	void about_frame();
@@ -455,6 +475,13 @@ void app::poll_events()
 	SDL_Event e;
 	while (SDL_PollEvent(&e))
 	{
+		// the rebuilt screens take their input through the toolkit's one layer (U1.3); releases
+		// are always passed on, so nothing stays "held" after a screen change
+		if (m_screen == screen::menu || m_screen == screen::settings || e.type == SDL_KEYUP || e.type == SDL_CONTROLLERBUTTONUP || e.type == SDL_MOUSEBUTTONUP || e.type == SDL_FINGERUP)
+		{
+			ui::raw_event raw;
+			if (ui::from_sdl(e, m_ui_shown, m_ui_ww, m_ui_wh, raw)) m_ui_in.feed(raw, SDL_GetTicks());
+		}
 		switch (e.type)
 		{
 			case SDL_QUIT: m_quit = true; break;
@@ -778,98 +805,243 @@ static void menu_message(canvas &cv, const std::string &m)
 	cv.text_wrap(4, cv.h - 43, m.substr(0, 96), 0xffffffff, 10, true);
 }
 
+// ---------------------------------------------------------------------------
+// The game picker and Settings, on the menu toolkit (roadmap U3.1, U3.2; ui/screens.h)
+// ---------------------------------------------------------------------------
+void app::ui_frame_begin()
+{
+	int dw = 0, dh = 0;
+	if (m_gl.ok()) m_gl.drawable_size(dw, dh); else if (m_ren) SDL_GetRendererOutputSize(m_ren, &dw, &dh);
+	SDL_GetWindowSize(m_win, &m_ui_ww, &m_ui_wh);
+	// the menu picture's place, in the units the mouse reports (window points, not pixels)
+	m_ui_shown = compute_view(dw, dh, ui::screen::kW, ui::screen::kH, view_shape::original, view_scaling::fit);
+	if (dw > 0 && dh > 0)
+	{
+		m_ui_shown.x = m_ui_shown.x * m_ui_ww / dw; m_ui_shown.w = m_ui_shown.w * m_ui_ww / dw;
+		m_ui_shown.y = m_ui_shown.y * m_ui_wh / dh; m_ui_shown.h = m_ui_shown.h * m_ui_wh / dh;
+	}
+	m_ui_in.tick(SDL_GetTicks());
+}
+
+const rom_art::art_set *app::art_of(const std::string &game_id)
+{
+	auto it = m_arts.find(game_id);
+	if (it == m_arts.end())
+	{
+		// read from the ROMs the first time the game is highlighted; into memory only
+		rom_art::roms roms;
+		rom_art::art_set set;
+		for (const game_info &g : game_list()) if (game_id == g.id && m_cat->art_roms(g, roms)) set = rom_art::read(roms);
+		it = m_arts.emplace(game_id, std::move(set)).first;
+	}
+	return it->second.empty() ? nullptr : &it->second;
+}
+
+void app::follow_theme(const std::string &game_id, unsigned now)
+{
+	if (game_id != m_theme_game)
+	{
+		m_theme_from = m_theme;
+		m_theme_to = ui::make_theme(ui::load_theme_spec(ui::theme_id_for_game(game_id), m_base), art_of(game_id));
+		m_theme_fading = !m_theme_game.empty();          // the first theme is simply there
+		if (!m_theme_fading) m_theme = m_theme_to;
+		m_theme_game = game_id;
+		m_theme_start = SDL_GetTicks();                  // after the read, so the fade is seen whole
+		now = m_theme_start;
+	}
+	if (m_theme_fading)
+	{
+		float t = float(now - m_theme_start) / float(ui::kThemeFadeMs);
+		m_theme = t >= 1 ? m_theme_to : ui::mix_themes(m_theme_from, m_theme_to, t);
+		m_theme_fading = t < 1;
+	}
+}
+
+ui::picker_state app::picker_now()
+{
+	// the name in short lines for the large lettering
+	static const std::map<std::string, std::vector<std::string>> big = {
+		{ "nbajam", { "NBA JAM" } }, { "nbajamte", { "NBA JAM", "T.E." } }, { "nbajamse", { "NBA JAM", "T.E. SE" } },
+		{ "nbahangt", { "NBA", "HANGTIME" } }, { "nbamht", { "MAXIMUM", "HANGTIME" } } };
+	ui::picker_state st;
+	const auto &list = game_list();
+	for (size_t i = 0; i < list.size(); i++)
+	{
+		ui::picker_game g;
+		g.title = list[i].title; g.revision = list[i].subtitle; g.board = list[i].hardware;
+		g.available = m_avail[i]; g.why = m_why[i]; g.from_source = list[i].from_source;
+		auto it = big.find(list[i].id);
+		g.big = it != big.end() ? it->second : std::vector<std::string>{ list[i].title };
+		st.games.push_back(g);
+	}
+	for (const auto &md : m_mods.mods()) { st.mods_total++; st.mods_on += md.enabled && md.error.empty(); }
+	st.news_on = m_cfg.news; st.news_new = m_cfg.news && m_news_new; st.news_tag = m_news_item.tag;
+	st.version = app_version();
+	st.roms_dir = path_join(m_base, "roms");
+	return st;
+}
+
+void app::open_online()
+{
+	m_screen = screen::net_menu;
+	m_net_sel = 0;
+	m_local_ips = net_local_ipv4();
+}
+
 void app::menu_frame()
 {
 	const auto &list = game_list();
-	int ng = int(list.size());
-	int n = ng + 4;                       // + Lua mods, news, controls, about
-	const int i_mods = ng, i_news = ng + 1, i_controls = ng + 2, i_about = ng + 3;
+	const int ng = int(list.size());
+	m_sel = std::clamp(m_sel, 0, ng - 1);
 	poll_news();
-	if (m_menu_up) m_sel = (m_sel + n - 1) % n;
-	if (m_menu_down) m_sel = (m_sel + 1) % n;
-	if (m_menu_back) { m_quit = true; return; }
-	if (m_menu_net && m_sel < ng) { m_screen = screen::net_menu; m_net_sel = 0; m_local_ips = net_local_ipv4(); return; }
-	if (m_sel == i_mods && m_menu_ok)
+	ui_frame_begin();
+	const unsigned now = SDL_GetTicks();
+	ui::picker_state st = picker_now();
+	if (m_picker.tabs.empty())
 	{
-		m_mods.scan(path_join(m_base, "mods"), path_join(m_base, "mods.ini"));   // pick up new scripts
-		m_mod_sel = 0;
-		m_screen = screen::mods;
-		return;
+		m_picker = ui::make_picker(st);
+		m_picker.tabs[0].panels[0].focus = m_sel;        // the first game that can be played
 	}
-	if (m_sel == i_news && (m_menu_left || m_menu_right))
+	ui::event ev;
+	while (m_ui_in.next(ev))
 	{
-		m_cfg.news = !m_cfg.news;
-		save_config(m_cfgpath, m_cfg);
-		if (m_cfg.news) m_news.start();     // asks once per run; does nothing if it already did
+		ui::result r = m_picker.handle(ev);
+		m_sel = ui::picker_game_index(m_picker, m_sel);
+		if (r.what == ui::result::back) m_picker.ask("Quit NBA JAM Recomp?", ui::pk_quit);
+		else if (r.what == ui::result::yes && r.id == ui::pk_quit) { m_quit = true; return; }
+		else if (r.what == ui::result::context && m_avail[size_t(m_sel)]) { open_online(); return; }
+		else if (r.what == ui::result::activated)
+		{
+			if (r.id >= ui::pk_game0 && r.id < ui::pk_game0 + ng)
+			{
+				int i = r.id - ui::pk_game0;
+				if (m_avail[size_t(i)]) { if (start_game(i)) return; }
+				else m_picker.toast("No ROMs for this game: see the panel on the right", now, 4000);
+			}
+			else if (r.id == ui::pk_online) { open_online(); return; }
+			else if (r.id == ui::pk_settings)
+			{
+				m_overlays = list_overlays(m_base);          // pick up files added while the program runs
+				m_settings = ui::make_settings(settings_now());
+				m_screen = screen::settings;
+				return;
+			}
+			else if (r.id == ui::pk_mods)
+			{
+				m_mods.scan(path_join(m_base, "mods"), path_join(m_base, "mods.ini"));   // pick up new scripts
+				m_mod_sel = 0;
+				m_screen = screen::mods;
+				return;
+			}
+			else if (r.id == ui::pk_controls) { m_screen = screen::controls; m_ctl_sel = 0; return; }
+			else if (r.id == ui::pk_news) { m_screen = screen::news; m_news_scroll = 0; return; }
+			else if (r.id == ui::pk_about) { m_screen = screen::about; return; }
+			else if (r.id == ui::pk_rescan)
+			{
+				m_cat->rescan();
+				refresh_availability();
+				m_arts.clear();
+				m_theme_game.clear();
+				int ready = 0;
+				for (bool a : m_avail) ready += a;
+				m_picker.toast(std::to_string(ready) + " of " + std::to_string(ng) + " games ready to play", now, 3000);
+				st = picker_now();
+			}
+			else if (r.id == ui::pk_quit) m_picker.ask("Quit NBA JAM Recomp?", ui::pk_quit);
+		}
 	}
-	else if (m_menu_ok)
-	{
-		if (m_sel == i_news) { m_screen = screen::news; m_news_scroll = 0; return; }
-		if (m_sel == i_controls) { m_screen = screen::controls; m_ctl_sel = 0; return; }
-		if (m_sel == i_about) { m_screen = screen::about; return; }
-		if (m_avail[size_t(m_sel)]) { if (start_game(m_sel)) return; }
-		else message(m_why[size_t(m_sel)], 6000);
-	}
+	// N on the keyboard still opens the online menu for the highlighted game
+	if (m_menu_net && !m_picker.asking() && m_avail[size_t(m_sel)]) { open_online(); return; }
 
-	canvas cv(400, 300);
-	draw_background(cv);
-	cv.text(cv.w / 2 - cv.text_w("NBA JAM", 4) / 2, 8, "NBA JAM", 0xffff8020, 4);
-	cv.text(cv.w / 2 - cv.text_w("RECOMP", 2) / 2, 42, "RECOMP", 0xffffffff, 2);
-	std::string pick = "Choose a game";
-	cv.text(cv.w / 2 - cv.text_w(pick) / 2, 61, pick, 0xffc0c0c0);
-
-	int y0 = 76;
-	for (int i = 0; i < ng; i++)
-	{
-		const game_info &g = list[size_t(i)];
-		int y = y0 + i * 25;
-		bool sel = i == m_sel;
-		if (sel) cv.blend(12, y - 3, cv.w - 24, 24, 0xffffa020, 90);
-		u32 col = m_avail[size_t(i)] ? (sel ? 0xffffffff : 0xffffe080) : 0xff707070;
-		cv.text(20, y, g.title, col);
-		cv.text(cv.w - 20 - cv.text_w(g.hardware) - (g.from_source ? 30 : 0), y, g.hardware, m_avail[size_t(i)] ? 0xffc0a0ff : 0xff606060, 1, false);
-		if (g.from_source) cv.text(cv.w - 44, y, "SRC", 0xff60ff60);
-		cv.text(20, y + 10, std::string(g.subtitle).substr(0, 46), m_avail[size_t(i)] ? 0xffa0c8ff : 0xff606060, 1, false);
-	}
-	{
-		int y = y0 + ng * 25 + 2;
-		bool sel = m_sel == i_mods;
-		if (sel) cv.blend(12, y - 3, cv.w - 24, 14, 0xffffa020, 90);
-		int on = 0;
-		for (const auto &md : m_mods.mods()) on += md.enabled && md.error.empty();
-		cv.text(20, y, std::string("Lua mods") + "  (" + std::to_string(on) + "/" + std::to_string(m_mods.mods().size()) + " on)",
-		        sel ? 0xffffffff : 0xffc8d8ff);
-		y += 14;
-		sel = m_sel == i_news;
-		if (sel) cv.blend(12, y - 3, cv.w - 24, 14, 0xffffa020, 90);
-		bool fresh = m_cfg.news && m_news_new;
-		cv.text(20, y, std::string("News and updates: ") + (!m_cfg.news ? "off" : fresh ? "NEW VERSION" : "on"), fresh ? 0xffffe040 : sel ? 0xffffffff : 0xffc8d8ff);
-		if (sel) cv.text(cv.w - 36, y, "< >", 0xffffffff);
-		y += 14;
-		sel = m_sel == i_controls;
-		if (sel) cv.blend(12, y - 3, cv.w - 24, 14, 0xffffa020, 90);
-		cv.text(20, y, "Controls (pads and profiles)", sel ? 0xffffffff : 0xffc8d8ff);
-		y += 14;
-		sel = m_sel == i_about;
-		if (sel) cv.blend(12, y - 3, cv.w - 24, 14, 0xffffa020, 90);
-		cv.text(20, y, "About NBA JAM Recomp", sel ? 0xffffffff : 0xffc8d8ff);
-	}
-	if (m_cfg.news && m_news_new)
-	{
-		// the notice takes the place of the version label; details are on the News screen
-		std::string note = "New version available: " + m_news_item.tag + "  (see News)";
-		cv.text(cv.w - 8 - cv.text_w(note), cv.h - 33, note, 0xffffe040);
-	}
-	else
-	{
-		std::string ver = std::string("v") + app_version();
-		cv.text(cv.w - 8 - cv.text_w(ver), cv.h - 33, ver, 0xff8080a0);
-	}
-	cv.text(8, cv.h - 21, "Enter/A: play   N/Y: online game", 0xffb0b0b0);
-	cv.text(8, cv.h - 11, "Esc: quit  F4: video  F11: fullscreen", 0xffb0b0b0);
+	ui::update_picker(m_picker, st, m_sel);
+	follow_theme(list[size_t(m_sel)].id, now);
+	canvas cv(ui::screen::kW, ui::screen::kH);
+	m_picker.draw(cv, m_theme, m_ui_in.last_device(), now);
+	if (!m_picker.asking()) ui::draw_picker_name(cv, m_picker, m_theme, st.games[size_t(m_sel)], art_of(list[size_t(m_sel)].id));
 	if (!m_message.empty() && SDL_GetTicks() < m_message_until) menu_message(cv, m_message);
 	present(cv.px.data(), cv.w, cv.h, false);
-	SDL_Delay(16);
+	SDL_Delay(8);
+}
+
+ui::settings_state app::settings_now()
+{
+	ui::settings_state st;
+	st.shape = m_cfg.shape == view_shape::stretch ? 1 : 0;
+	st.scaling = int(m_cfg.scaling);
+	st.shader = m_cfg.shader;
+	for (int i = 0; i < kNumShaders; i++) st.shaders.push_back(shader_name(i));
+	st.scanlines = m_cfg.scan_strength;
+	st.side_names = { "Black", "Blurred picture" };
+	for (const overlay_entry &o : m_overlays) st.side_names.push_back(o.name);
+	st.sides = m_cfg.side_fill == 1 ? 1 : 0;
+	if (m_cfg.side_fill == 2)
+		for (size_t i = 0; i < m_overlays.size(); i++) if (m_overlays[i].name == m_cfg.overlay) st.sides = int(i) + 2;
+	st.fullscreen = m_cfg.fullscreen;
+	st.volume = m_cfg.volume;
+	st.free_play = m_cfg.dips.free_play; st.four_players = m_cfg.dips.four_players; st.video_clips = m_cfg.dips.video_clips; st.country = m_cfg.dips.country;
+	st.news = m_cfg.news;
+	return st;
+}
+
+void app::apply_settings(const ui::settings_state &want)
+{
+	const ui::settings_state had = settings_now();
+	m_cfg.shape = want.shape ? view_shape::stretch : view_shape::original;
+	m_cfg.scaling = view_scaling(std::clamp(want.scaling, 0, 2));
+	m_cfg.shader = std::clamp(want.shader, 0, kNumShaders - 1);
+	m_cfg.scan_strength = std::clamp(want.scanlines, 0.2f, 1.0f);
+	m_cfg.volume = std::clamp(want.volume, 0.0f, 1.0f);
+	m_cfg.dips.free_play = want.free_play; m_cfg.dips.four_players = want.four_players; m_cfg.dips.video_clips = want.video_clips;
+	m_cfg.dips.country = std::clamp(want.country, 0, 2);
+	if (want.fullscreen != had.fullscreen)
+	{
+		m_cfg.fullscreen = want.fullscreen;
+		SDL_SetWindowFullscreen(m_win, m_cfg.fullscreen ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0);
+	}
+	if (want.news != had.news)
+	{
+		m_cfg.news = want.news;
+		if (m_cfg.news) m_news.start();          // asks once per run; does nothing if it already did
+	}
+	if (want.sides != had.sides)
+	{
+		if (!m_gl.ok() && want.sides != 0) { m_cfg.side_fill = 0; message("Sides: need OpenGL (black)", 4000); }
+		else if (want.sides <= 1) { m_cfg.side_fill = want.sides; if (want.sides == 0) m_gl.set_overlay(nullptr, 0, 0); }
+		else if (size_t(want.sides - 2) < m_overlays.size() && use_overlay(m_overlays[size_t(want.sides - 2)].name))
+		{
+			m_cfg.side_fill = 2;
+			m_cfg.overlay = m_overlays[size_t(want.sides - 2)].name;
+		}
+		else message("That image could not be read", 4000);
+	}
+	save_config(m_cfgpath, m_cfg);
+}
+
+void app::settings_frame()
+{
+	ui_frame_begin();
+	const unsigned now = SDL_GetTicks();
+	if (m_settings.tabs.empty()) m_settings = ui::make_settings(settings_now());
+	ui::show_settings(m_settings, settings_now());       // a key (F4 to F8, F11, - and +) may have changed one
+	ui::event ev;
+	while (m_ui_in.next(ev))
+	{
+		ui::result r = m_settings.handle(ev);
+		if (r.what == ui::result::back) { save_config(m_cfgpath, m_cfg); m_screen = screen::menu; return; }
+		if (r.what == ui::result::changed)
+		{
+			ui::settings_state want = settings_now();
+			ui::read_settings(m_settings, want);
+			apply_settings(want);
+			ui::show_settings(m_settings, settings_now());   // what really took effect
+		}
+	}
+	follow_theme(game_list()[size_t(std::clamp(m_sel, 0, int(game_list().size()) - 1))].id, now);
+	canvas cv(ui::screen::kW, ui::screen::kH);
+	m_settings.draw(cv, m_theme, m_ui_in.last_device(), now);
+	if (!m_message.empty() && SDL_GetTicks() < m_message_until) menu_message(cv, m_message);
+	present(cv.px.data(), cv.w, cv.h, false);
+	SDL_Delay(8);
 }
 
 // ---------------------------------------------------------------------------
@@ -1817,6 +1989,7 @@ int app::run()
 		switch (m_screen)
 		{
 			case screen::menu: menu_frame(); next = clock::now(); continue;
+			case screen::settings: settings_frame(); next = clock::now(); continue;
 			case screen::net_menu: net_menu_frame(); next = clock::now(); continue;
 			case screen::net_lobby: net_lobby_frame(); next = clock::now(); continue;
 			case screen::about: about_frame(); next = clock::now(); continue;

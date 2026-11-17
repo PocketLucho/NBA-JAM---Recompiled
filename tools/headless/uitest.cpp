@@ -12,6 +12,8 @@
 //   U1.5  text that does not fit is shortened or scrolled, never longer than its space
 #include "ui/gallery.h"
 #include "ui/themes.h"
+#include "ui/screens.h"
+#include <cmath>
 #include "miniz.h"
 #include <cstdio>
 #include <cstdlib>
@@ -611,6 +613,135 @@ int main(int argc, char **argv)
 		sample.text(8, sample.h - 11, "Enter / Esc: back (saved to mods.ini)", 0xffb0b0b0);
 		write_png(out, "old_screens_sample.png", sample);
 		CHECK(a.px == b.px && c2.px != d.px, "old screens: file names and web addresses keep their lower case; other words use the lettering");
+	}
+
+	// ---------------- U3.1 / U3.2: the game picker and Settings ----------------
+	{
+		picker_state st;
+		const char *titles[5] = { "NBA JAM", "NBA JAM Tournament Edition", "NBA JAM T.E. Special Edition", "NBA Hangtime", "NBA Maximum Hangtime" };
+		for (int i = 0; i < 5; i++)
+		{
+			picker_game g;
+			g.title = titles[i]; g.revision = "1994 - rev 4.0 (source build = ROM)"; g.board = i < 3 ? "T-Unit" : "Wolf Unit";
+			g.big = { "NBA JAM", "T.E." };
+			g.available = i != 3; g.from_source = i == 1;
+			g.why = "Copy the MAME romset nbahangt.zip to roms/";
+			st.games.push_back(g);
+		}
+		st.mods_on = 1; st.mods_total = 2; st.version = "1.2.3"; st.roms_dir = "C:/Users/someone/AppData/Roaming/NBAJamRecomp/roms";
+		settings_state ss;
+		ss.shaders = { "Sharp (pixel perfect)", "Smooth", "Scanlines", "CRT", "Curved CRT" };
+		ss.side_names = { "Black", "Blurred picture", "arcade-border" };
+
+		// the U1.2 walk on both screens: every usable item reached by directions and tab
+		// buttons alone, focus never lost, Back reported everywhere
+		auto walk = [&](const screen &start, const std::string &name)
+		{
+			static const act moves[] = { act::up, act::down, act::left, act::right, act::tab_prev, act::tab_next, act::page_up, act::page_down };
+			std::set<std::tuple<int, int, int>> seen;
+			std::vector<screen> todo = { start };
+			bool ok = true, back = true;
+			while (!todo.empty())
+			{
+				screen s = todo.back();
+				todo.pop_back();
+				auto key = std::make_tuple(s.cur_tab, s.cur_panel, s.tabs[size_t(s.cur_tab)].panels[size_t(s.cur_panel)].focus);
+				if (seen.count(key)) continue;
+				seen.insert(key);
+				ok = ok && s.focus_ok() && (!s.focused() || s.focused()->focusable());
+				{ screen b = s; back = back && b.handle(ev(act::back)).what == result::back; }
+				for (act m : moves) { screen n = s; n.handle(ev(m)); todo.push_back(n); }
+			}
+			int missing = 0;
+			auto want = all_usable(start);
+			for (auto &w : want) missing += !seen.count(w);
+			CHECK(missing == 0 && ok && back, name + ": all " + std::to_string(want.size()) + " usable items are reached with directions and tab buttons alone; focus is never lost; Back is always reported");
+		};
+		screen pk = make_picker(st);
+		walk(pk, "picker");
+		screen se = make_settings(ss);
+		walk(se, "settings");
+
+		// picker: what it shows
+		CHECK(pk.focused() && pk.focused()->id == pk_game0 && pk.find(pk_game0 + 3)->dim && pk.find(pk_game0 + 3)->focusable() && pk.find(pk_game0 + 3)->value_text == "No ROMs" && pk.find(pk_game0)->value_text.empty() && pk.rows_visible(1) >= 8 && pk.rows_visible(0) >= 5,
+		      "picker: the games are listed; one without ROMs is greyed but can still be highlighted; list and menu show every row");
+		auto side = [&](const screen &s) { std::string all; for (auto &i : s.tabs[0].panels[2].items) all += i.label + " "; return all; };
+		update_picker(pk, st, 0);
+		std::string ready = side(pk);
+		for (int i = 0; i < 3; i++) pk.handle(ev(act::down));
+		int at = picker_game_index(pk, 0);
+		update_picker(pk, st, at);
+		std::string missing_rom = side(pk);
+		CHECK(at == 3 && ready.find("READY TO PLAY") != std::string::npos && missing_rom.find("CANNOT BE PLAYED YET") != std::string::npos && missing_rom.find("nbahangt.zip") != std::string::npos &&
+		      missing_rom.find("Version 1.2.3") != std::string::npos, "picker: the side panel follows the highlighted game and gives the reason when it cannot be played");
+		result r = pk.handle(ev(act::confirm));
+		CHECK(r.what == result::activated && r.id == pk_game0 + 3, "picker: pressing a game reports it, playable or not");
+		for (int i = 0; i < 2; i++) pk.handle(ev(act::down));
+		CHECK(pk.cur_panel == 1 && pk.focused()->id == pk_settings && picker_game_index(pk, at) == 3 && pk.find(pk_online)->disabled,
+		      "picker: below the list is the menu; it remembers the game, and Online is off for a game without ROMs");
+		CHECK(pk.find(pk_mods)->value_text == "1 of 2 on", "picker: the menu shows how many Lua mods are on");
+		picker_state none = st;
+		for (auto &g : none.games) g.available = false;
+		screen first = make_picker(none);
+		std::string fr = side(first);
+		CHECK(fr.find("NO GAMES FOUND") != std::string::npos && fr.find("Look for ROMs again") != std::string::npos && fr.find("C:/Us") != std::string::npos,
+		      "picker: with no game playable it says where the ROM sets go");
+		picker_state news = st;
+		news.news_new = true; news.news_tag = "v1.3.0";
+		screen pn = make_picker(news);
+		CHECK(side(pn).find("NEW VERSION AVAILABLE") != std::string::npos && pn.find(pk_news)->value_text == "New version", "picker: a new version is announced on the side panel and on the News entry");
+		pk.handle(ev(act::back));
+		CHECK(!pk.asking(), "picker: Back is left to the program (which asks before quitting)");
+
+		// settings: the widgets and the state agree both ways
+		ss.shape = 1; ss.scaling = 2; ss.shader = 4; ss.scanlines = 0.4f; ss.sides = 2; ss.fullscreen = true; ss.volume = 0.3f;
+		ss.free_play = false; ss.four_players = false; ss.country = 2; ss.video_clips = false; ss.news = false;
+		show_settings(se, ss);
+		settings_state back2;
+		back2.shaders = ss.shaders; back2.side_names = ss.side_names;
+		read_settings(se, back2);
+		CHECK(back2.shape == 1 && back2.scaling == 2 && back2.shader == 4 && std::fabs(back2.scanlines - 0.4f) < 0.01f && back2.sides == 2 && back2.fullscreen && std::fabs(back2.volume - 0.3f) < 0.01f &&
+		      !back2.free_play && !back2.four_players && back2.country == 2 && !back2.video_clips && !back2.news, "settings: every value goes to its widget and back unchanged");
+		se.cur_tab = 0; se.cur_panel = 0; se.fix_focus();
+		result ch = se.handle(ev(act::right));
+		read_settings(se, back2);
+		CHECK(ch.what == result::changed && ch.id == st_shape && back2.shape == 0, "settings: changing a widget reports it and the new value is read back");
+		CHECK(se.tabs.size() == 4 && se.tabs[0].name == "Video" && se.tabs[1].name == "Sound" && se.tabs[2].name == "Game", "settings: Video, Sound, Game and Program tabs");
+
+		// pictures
+		theme th2;
+		canvas c1(screen::kW, screen::kH);
+		screen shot = make_picker(st);
+		update_picker(shot, st, 0);
+		shot.draw(c1, th2, device::xbox, 0);
+		draw_picker_name(c1, shot, th2, st.games[0], nullptr);
+		write_png(out, "picker_1_ready.png", c1);
+		for (int i = 0; i < 3; i++) shot.handle(ev(act::down));
+		update_picker(shot, st, 3);
+		canvas c2(screen::kW, screen::kH);
+		shot.draw(c2, th2, device::keyboard, 0);
+		draw_picker_name(c2, shot, th2, st.games[3], nullptr);
+		write_png(out, "picker_2_no_roms_for_game.png", c2);
+		canvas c3(screen::kW, screen::kH);
+		first.draw(c3, th2, device::playstation, 0);
+		draw_picker_name(c3, first, th2, none.games[0], nullptr);
+		write_png(out, "picker_3_first_run.png", c3);
+		for (int t = 0; t < 4; t++)
+		{
+			canvas c(screen::kW, screen::kH);
+			se.cur_tab = t; se.cur_panel = 0; se.fix_focus();
+			se.draw(c, th2, device::xbox, 0);
+			write_png(out, "settings_" + std::to_string(t + 1) + ".png", c);
+		}
+		// the name is drawn inside the side panel
+		rectf ir = shot.panel_rect(2);
+		bool inside = true, drawn = false;
+		canvas a(screen::kW, screen::kH), b(screen::kW, screen::kH);
+		shot.draw(a, th2, device::xbox, 0); shot.draw(b, th2, device::xbox, 0);
+		draw_picker_name(b, shot, th2, st.games[3], nullptr);
+		for (int y = 0; y < a.h; y++) for (int x = 0; x < a.w; x++)
+			if (a.px[size_t(y) * a.w + x] != b.px[size_t(y) * b.w + x]) { drawn = true; inside = inside && x > ir.x && x < ir.x + ir.w - 1 && y > ir.y && y < ir.y + 5 * screen::kRow + 2; }
+		CHECK(drawn && inside, "picker: the game's name is drawn large at the top of the side panel, inside it");
 	}
 
 	printf("\n%d checks, %d failed\n", g_run, g_fail);

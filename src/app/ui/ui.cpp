@@ -620,7 +620,7 @@ void screen::draw(canvas &cv, const theme &th, device dev, unsigned now_ms) cons
 		bool foc = s.panel == cur_panel && s.index == pn.focus && it.focusable() && !asking();
 		int x = int(s.r.x), y = int(s.r.y), w = int(s.r.w) - (pn.cols > 1 ? 2 : 10);
 		if (foc) cv.blend(x, y, w, kRow - 1, th.bar, 110);
-		uint32_t col = it.disabled ? th.text_off : it.k == kind::header ? th.header : foc ? th.text_focus : th.text;
+		uint32_t col = it.disabled || (it.dim && !foc) ? th.text_off : it.k == kind::header ? th.header : foc ? th.text_focus : th.text;
 		const int room = w - 8;
 		if (pn.cols > 1)
 		{
