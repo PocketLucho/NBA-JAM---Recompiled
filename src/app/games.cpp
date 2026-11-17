@@ -250,6 +250,41 @@ static bool load_wolf_gfx(rom_pool &p, std::vector<u8> &gfx, std::string &err)
 	return true;
 }
 
+bool game_catalog::art_roms(const game_info &g, rom_art::roms &out)
+{
+	std::string id = g.id, err;
+	rom_pool &p = pool();
+	out = rom_art::roms();
+	out.wolf = id == "nbamht" || id == "nbahangt";
+	std::vector<u8> lo, hi;
+	if (out.wolf)
+	{
+		const prog_version *v = id == "nbahangt" ? find_version(p, ht_versions) : find_version(p, mht_versions);
+		if (v && wolf_gfx_ok(p) && load_desc(p, v->u54, lo, err) && load_desc(p, v->u63, hi, err) && load_wolf_gfx(p, out.gfx, err))
+		{
+			interleave(lo, hi, out.program);
+			return true;
+		}
+	}
+	else if (id == "nbajam" || id == "nbajamte" || id == "nbajamse")
+	{
+		const rom_desc *prog = id == "nbajam" ? nbajam_prog : id == "nbajamte" ? te_prog : se_prog;
+		const rom_desc *gfx = id == "nbajam" ? nbajam_gfx : id == "nbajamte" ? te_gfx : se_gfx;
+		if (have_all(p, prog, 2) && load_desc(p, prog[0], lo, err) && load_desc(p, prog[1], hi, err))
+		{
+			interleave(lo, hi, out.program);
+			if (have_all(p, gfx, 16)) { if (load_tunit_lanes(p, gfx, out.gfx, err)) return true; }
+			else if (id == "nbajamte" && have_all(p, te_irw, 4) && load_tunit_irw(p, te_irw, 4, out.gfx, err)) return true;
+		}
+	}
+	// an own build from the sources (tools/build_roms.sh)
+	if (uses_data_dir(g) && read_whole_file(path_join(data_dir(g), "program.bin"), out.program) && read_whole_file(path_join(data_dir(g), "gfx.bin"), out.gfx)) return true;
+	bool wolf = out.wolf;
+	out = rom_art::roms();
+	out.wolf = wolf;
+	return false;
+}
+
 std::unique_ptr<arcade_machine> game_catalog::create(const game_info &g, std::string &err)
 {
 	std::string id = g.id;

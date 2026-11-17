@@ -83,6 +83,12 @@ jobs:
           build/linux/uitest viewtest-out | tee uitest.log
           grep -q ", 0 failed" uitest.log
 
+      - name: ROM art reader tests (no ROM needed)
+        run: |
+          set -o pipefail
+          build/linux/arttest viewtest-out | tee arttest.log
+          grep -q ", 0 failed" arttest.log
+
       - name: Picture placement tests (no display needed)
         run: |
           set -o pipefail
