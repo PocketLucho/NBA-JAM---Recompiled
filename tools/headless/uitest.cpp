@@ -744,6 +744,106 @@ int main(int argc, char **argv)
 		CHECK(drawn && inside, "picker: the game's name is drawn large at the top of the side panel, inside it");
 	}
 
+	// ---------------- U3.3 / U3.4: Controls and Lua mods ----------------
+	{
+		auto walk = [&](const screen &start, const std::string &name)
+		{
+			static const act moves[] = { act::up, act::down, act::left, act::right, act::tab_prev, act::tab_next, act::page_up, act::page_down };
+			std::set<std::tuple<int, int, int>> seen;
+			std::vector<screen> todo = { start };
+			bool ok = true, back = true;
+			while (!todo.empty())
+			{
+				screen s = todo.back();
+				todo.pop_back();
+				auto key = std::make_tuple(s.cur_tab, s.cur_panel, s.tabs[size_t(s.cur_tab)].panels[size_t(s.cur_panel)].focus);
+				if (seen.count(key)) continue;
+				seen.insert(key);
+				ok = ok && s.focus_ok() && (!s.focused() || s.focused()->focusable());
+				{ screen b = s; back = back && b.handle(ev(act::back)).what == result::back; }
+				for (act m : moves) { screen n = s; n.handle(ev(m)); todo.push_back(n); }
+			}
+			int missing = 0;
+			auto want = all_usable(start);
+			for (auto &w : want) missing += !seen.count(w);
+			CHECK(missing == 0 && ok && back, name + ": all " + std::to_string(want.size()) + " usable items are reached with directions alone; focus is never lost; Back is always reported");
+		};
+
+		// Lua mods
+		mods_state ms;
+		ms.folder = "C:/Users/someone/Games/NBAJamRecomp/mods";
+		mod_view a;
+		a.name = "Quarter length"; a.description = "Sets how long a quarter lasts, from 30 seconds to 12 minutes, on every game."; a.enabled = true;
+		a.options.push_back({ "Minutes", { "0:30", "1:30", "3:00", "12:00" }, 1 });
+		a.games = { { "NBA JAM", true, true }, { "NBA JAM Tournament Edition", true, true }, { "NBA Hangtime", false, false } };
+		mod_view b;
+		b.name = "No select timer"; b.description = "No countdown on team select."; b.enabled = false; b.all_games = false;
+		b.games = a.games;
+		mod_view c;
+		c.name = "Broken script"; c.error = "broken.lua:3: unexpected symbol near 'then'";
+		ms.mods = { a, b, c };
+		screen md = make_mods(ms);
+		walk(md, "Lua mods");
+		auto page = [&](const screen &s) { std::string all; for (auto &i : s.tabs[0].panels[1].items) all += i.label + " "; return all; };
+		CHECK(md.find(md_mod0)->value_text == "On" && md.find(md_mod0 + 1)->value_text == "Off" && md.find(md_mod0 + 1)->dim && md.find(md_mod0 + 2)->value_text == "Error",
+		      "Lua mods: the list says which scripts are on, off or broken");
+		std::string p0 = page(md);
+		CHECK(p0.find("Sets how long a quarter lasts") != std::string::npos && p0.find("12 minutes") != std::string::npos && md.find(md_enabled) && md.find(md_enabled)->on && md.find(md_apply)->choice == 0 &&
+		      md.find(md_opt0)->choices.size() == 4 && md.find(md_opt0)->choice == 1 && md.find(md_game0)->on && md.find(md_game0 + 2)->disabled,
+		      "Lua mods: the page shows the whole description, the switch, the games it applies to and its options; an unsupported game cannot be switched");
+		CHECK(mods_open_page(md) && md.cur_panel == 1 && md.focused()->id == md_enabled, "Lua mods: confirming a script goes to its page");
+		result ch = md.handle(ev(act::confirm));
+		CHECK(ch.what == result::changed && ch.id == md_enabled && !md.find(md_enabled)->on, "Lua mods: a change on the page is reported");
+		md.cur_panel = 0;
+		md.handle(ev(act::down));
+		int at = mods_index(md, 0);
+		update_mods(md, ms, at);
+		CHECK(at == 1 && md.find(md_apply)->choice == 1 && md.tabs[0].panels[1].title == "No select timer", "Lua mods: the page follows the highlighted script");
+		md.handle(ev(act::down));
+		update_mods(md, ms, mods_index(md, at));
+		CHECK(page(md).find("unexpected symbol") != std::string::npos && !md.find(md_enabled) && !mods_open_page(md), "Lua mods: a broken script shows its error and has nothing to change");
+		mods_state none;
+		none.folder = ms.folder;
+		screen empty = make_mods(none);
+		CHECK(page(empty).find("Put .lua scripts in this folder") != std::string::npos && empty.focus_ok(), "Lua mods: with no scripts it says where they go");
+
+		// Controls
+		controls_state cs;
+		cs.games = { "All games", "NBA JAM", "NBA Hangtime" };
+		cs.profiles = { "Default", "Fight stick" };
+		cs.pad = "Xbox Wireless Controller";
+		static const char *names[13] = { "Up", "Down", "Left", "Right", "Shoot", "Pass", "Turbo", "Start", "Coin", "Shove", "Turbo shot", "Shortcut 1", "Shortcut 2" };
+		for (int i = 0; i < 13; i++) cs.actions.push_back({ names[i], i == 4 ? "a, y" : "dpup", i == 4 });
+		cs.shortcut_sets = { "-", "Shoot", "Pass", "Turbo + Pass" };
+		cs.shortcut[1] = 3;
+		screen ct = make_controls(cs);
+		walk(ct, "Controls");
+		CHECK(ct.find(ct_act0 + 4)->value_text == "* a, y" && ct.find(ct_act0)->value_text == "dpup" && ct.find(ct_short0 + 1)->choice == 3 && ct.find(ct_profile)->choices.size() == 2 &&
+		      ct.tabs[0].panels[1].title == "Buttons: Xbox Wireless Controller" && ct.rows_visible(1) >= 13,
+		      "Controls: every action shows its binding, a held one is marked, and all thirteen fit without scrolling");
+		cs.capturing = 5; cs.seconds = 4; cs.pad.clear(); cs.game = 2; cs.profiles = { "As all games: Default", "Default", "Fight stick" };
+		update_controls(ct, cs);
+		CHECK(ct.find(ct_act0 + 5)->value_text == "Press it... 4" && ct.tabs[0].panels[1].title == "Buttons (no controller)" && ct.find(ct_game)->choice == 2 &&
+		      ct.find(ct_profile)->choices.size() == 3 && ct.find(ct_export_setup)->label == "Export this game's setup",
+		      "Controls: an action being bound counts down; one game can follow the all-games profile");
+		cs.capturing = -1; cs.naming = true; cs.name = "Stick copy";
+		update_controls(ct, cs);
+		CHECK(ct.find(ct_new)->label == "Name: Stick copy_", "Controls: the name of a new profile is shown while it is typed");
+		ct.cur_panel = 1; ct.fix_focus();
+		result pr = ct.handle(ev(act::confirm)), cl = ct.handle(ev(act::context));
+		CHECK(pr.what == result::activated && pr.id == ct_act0 && cl.what == result::context && cl.id == ct_act0, "Controls: Confirm on an action asks for a press, the context button clears it");
+
+		theme th2;
+		screen shots[3] = { make_mods(ms), make_controls(cs), make_mods(none) };
+		static const char *files[3] = { "mods_1_page.png", "controls_1.png", "mods_2_none.png" };
+		for (int i = 0; i < 3; i++)
+		{
+			canvas cv(screen::kW, screen::kH);
+			shots[i].draw(cv, th2, i == 1 ? device::xbox : device::keyboard, 0);
+			write_png(out, files[i], cv);
+		}
+	}
+
 	printf("\n%d checks, %d failed\n", g_run, g_fail);
 	return g_fail ? 1 : 0;
 }

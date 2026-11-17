@@ -204,7 +204,8 @@ private:
 	void settings_frame();
 	// the screens rebuilt on the menu toolkit (roadmap U3): the game picker and Settings
 	ui::input m_ui_in;
-	ui::screen m_picker, m_settings;
+	ui::screen m_picker, m_settings, m_mods_scr, m_ctl_scr;
+	ui::mods_state mods_now();
 	view_rect m_ui_shown;                 // where the menu picture is in the window, for the mouse
 	int m_ui_ww = 1, m_ui_wh = 1;
 	void ui_frame_begin();
@@ -224,7 +225,6 @@ private:
 	void net_lobby_frame();
 	void about_frame();
 	void mods_frame();
-	void mod_detail_frame();
 	void controls_frame();
 	void apply_setup(const import_result &r);
 	bool game_frame();                 // returns true when an emulated frame was run
@@ -477,7 +477,9 @@ void app::poll_events()
 	{
 		// the rebuilt screens take their input through the toolkit's one layer (U1.3); releases
 		// are always passed on, so nothing stays "held" after a screen change
-		if (m_screen == screen::menu || m_screen == screen::settings || e.type == SDL_KEYUP || e.type == SDL_CONTROLLERBUTTONUP || e.type == SDL_MOUSEBUTTONUP || e.type == SDL_FINGERUP)
+		const bool toolkit = (m_screen == screen::menu || m_screen == screen::settings || m_screen == screen::mods || m_screen == screen::controls) &&
+		                     m_capture < 0 && !m_editing;      // not while a button is being bound or a name typed
+		if (toolkit || e.type == SDL_KEYUP || e.type == SDL_CONTROLLERBUTTONUP || e.type == SDL_MOUSEBUTTONUP || e.type == SDL_FINGERUP)
 		{
 			ui::raw_event raw;
 			if (ui::from_sdl(e, m_ui_shown, m_ui_ww, m_ui_wh, raw)) m_ui_in.feed(raw, SDL_GetTicks());
@@ -930,10 +932,11 @@ void app::menu_frame()
 			{
 				m_mods.scan(path_join(m_base, "mods"), path_join(m_base, "mods.ini"));   // pick up new scripts
 				m_mod_sel = 0;
+				m_mods_scr = ui::screen();
 				m_screen = screen::mods;
 				return;
 			}
-			else if (r.id == ui::pk_controls) { m_screen = screen::controls; m_ctl_sel = 0; return; }
+			else if (r.id == ui::pk_controls) { m_ctl_scr = ui::screen(); m_screen = screen::controls; return; }
 			else if (r.id == ui::pk_news) { m_screen = screen::news; m_news_scroll = 0; return; }
 			else if (r.id == ui::pk_about) { m_screen = screen::about; return; }
 			else if (r.id == ui::pk_rescan)
@@ -1048,143 +1051,90 @@ void app::settings_frame()
 // Lua mods menu: list of scripts in mods/, then one page per mod with
 // on/off, "apply to: all games / selected games", a checkbox per game and the options
 // ---------------------------------------------------------------------------
-static std::string checkbox(bool on) { return on ? "[x] " : "[ ] "; }
-
-void app::mods_frame()
+ui::mods_state app::mods_now()
 {
-	auto &mods = m_mods.mods();
-	int n = int(mods.size());
-	if (m_menu_back) { m_mods.save(); m_screen = screen::menu; return; }
-	if (n > 0)
+	ui::mods_state st;
+	st.folder = path_join(m_base, "mods");
+	for (const mod_script &m : m_mods.mods())
 	{
-		if (m_menu_up) m_mod_sel = (m_mod_sel + n - 1) % n;
-		if (m_menu_down) m_mod_sel = (m_mod_sel + 1) % n;
-		m_mod_sel = std::clamp(m_mod_sel, 0, n - 1);
-		mod_script &m = mods[size_t(m_mod_sel)];
-		if ((m_menu_left || m_menu_right) && m.error.empty()) { m.enabled = !m.enabled; m_mods.save(); }
-		if (m_menu_ok) { m_mod_row = 0; m_screen = screen::mod_detail; return; }
+		ui::mod_view v;
+		v.name = m.name; v.description = m.description; v.error = m.error;
+		v.enabled = m.enabled && m.error.empty(); v.all_games = m.all_games;
+		for (const mod_option &o : m.options)
+		{
+			ui::mod_view::option vo;
+			vo.label = o.label;
+			for (size_t k = 0; k < o.values.size(); k++) vo.values.push_back(o.value_text(int(k)));
+			vo.value = m.option_index(o);
+			v.options.push_back(vo);
+		}
+		for (const game_info &g : game_list())
+		{
+			bool sup = m.supports(g.id);
+			v.games.push_back({ g.title, sup, sup && (m.all_games || m.game_checked(g.id)) });
+		}
+		st.mods.push_back(v);
 	}
-
-	canvas cv(400, 300);
-	draw_background(cv);
-	std::string title = "LUA MODS";
-	cv.text(cv.w / 2 - cv.text_w(title, 2) / 2, 8, title, 0xffff8020, 2);
-	std::string sub = ".lua scripts in the mods/ folder";
-	cv.text(cv.w / 2 - cv.text_w(sub) / 2, 28, sub, 0xffc0c0c0);
-	if (n == 0)
-		cv.text_wrap(20, 60, "No mods found. Put .lua scripts in the mods/ folder next to the program.", 0xffffe080);
-	// scroll so the selection stays visible
-	const int rows = 9, y0 = 46;
-	int first = std::clamp(m_mod_sel - rows + 1, 0, std::max(0, n - rows));
-	for (int i = first; i < n && i < first + rows; i++)
-	{
-		const mod_script &m = mods[size_t(i)];
-		int y = y0 + (i - first) * 24;
-		bool sel = i == m_mod_sel;
-		if (sel) cv.blend(12, y - 3, cv.w - 24, 23, 0xffffa020, 90);
-		u32 col = !m.error.empty() ? 0xffff6060 : sel ? 0xffffffff : 0xffffe080;
-		cv.text(20, y, checkbox(m.enabled && m.error.empty()) + m.name.substr(0, 30), col);
-		std::string scope = !m.error.empty() ? "ERROR"
-		                  : m.all_games ? "all games"
-		                  : std::to_string(m.games.size()) + " game(s)";
-		cv.text(cv.w - 20 - cv.text_w(scope), y, scope, m.error.empty() ? 0xffc0a0ff : 0xffff6060, 1, false);
-		std::string desc = m.error.empty() ? m.description : m.error;
-		cv.text(52, y + 10, desc.substr(0, 41), 0xffa0c8ff, 1, false);
-	}
-	cv.text(8, cv.h - 21, "Left/Right: on/off   Enter: games & options", 0xffb0b0b0);
-	cv.text(8, cv.h - 11, "Esc: back (saved to mods.ini)", 0xffb0b0b0);
-	if (!m_message.empty() && SDL_GetTicks() < m_message_until) menu_message(cv, m_message);
-	present(cv.px.data(), cv.w, cv.h, false);
-	SDL_Delay(16);
+	return st;
 }
 
-void app::mod_detail_frame()
+// Lua mods (U3.4): the scripts in mods/ in a list, and beside it the highlighted script's
+// page: on or off, all games or selected ones, its options, a switch per game.
+void app::mods_frame()
 {
+	ui_frame_begin();
+	const unsigned now = SDL_GetTicks();
 	auto &mods = m_mods.mods();
-	if (m_mod_sel < 0 || m_mod_sel >= int(mods.size())) { m_screen = screen::mods; return; }
-	mod_script &m = mods[size_t(m_mod_sel)];
 	const auto &games = game_list();
-	int nopt = int(m.options.size()), ng = int(games.size());
-	// rows: 0 enabled, 1 apply-to, 2.. options, then one checkbox per game
-	int n = 2 + nopt + ng;
-	if (m_menu_back) { m_mods.save(); m_screen = screen::mods; return; }
-	if (m_menu_up) m_mod_row = (m_mod_row + n - 1) % n;
-	if (m_menu_down) m_mod_row = (m_mod_row + 1) % n;
-	bool toggle = m_menu_ok || m_menu_left || m_menu_right;
-	int dir = m_menu_left ? -1 : 1;
-	if (toggle && m.error.empty())
+	if (m_mods_scr.tabs.empty()) m_mods_scr = ui::make_mods(mods_now());
+	ui::event ev;
+	while (m_ui_in.next(ev))
 	{
-		if (m_mod_row == 0) m.enabled = !m.enabled;
-		else if (m_mod_row == 1)
+		ui::result r = m_mods_scr.handle(ev);
+		m_mod_sel = ui::mods_index(m_mods_scr, m_mod_sel);
+		if (r.what == ui::result::back)
 		{
-			m.all_games = !m.all_games;
-			if (!m.all_games && m.games.empty())          // start from every supported game
-				for (const auto &g : games) if (m.supports(g.id)) m.games.push_back(g.id);
+			// from a script's page back to the list; from the list back to the menu
+			if (m_mods_scr.cur_panel == 1) { m_mods_scr.cur_panel = 0; continue; }
+			m_mods.save();
+			m_screen = screen::menu;
+			return;
 		}
-		else if (m_mod_row < 2 + nopt)
+		if (m_mod_sel < 0 || m_mod_sel >= int(mods.size())) continue;
+		mod_script &m = mods[size_t(m_mod_sel)];
+		const bool in_list = r.id >= ui::md_mod0 && r.id < ui::md_enabled;
+		if (r.what == ui::result::activated && in_list) ui::mods_open_page(m_mods_scr);
+		else if (r.what == ui::result::context && in_list && m.error.empty()) { m.enabled = !m.enabled; m_mods.save(); }
+		else if (r.what == ui::result::changed && m.error.empty())
 		{
-			const mod_option &o = m.options[size_t(m_mod_row - 2)];
-			int cnt = int(o.values.size());
-			m.opt[o.id] = (m.option_index(o) + dir + cnt) % cnt;
-		}
-		else
-		{
-			const game_info &g = games[size_t(m_mod_row - 2 - nopt)];
-			if (m.supports(g.id))
+			const ui::item *it = m_mods_scr.find(r.id);
+			if (!it) continue;
+			auto supported = [&]() { m.games.clear(); for (const auto &g : games) if (m.supports(g.id)) m.games.push_back(g.id); };
+			if (r.id == ui::md_enabled) m.enabled = it->on;
+			else if (r.id == ui::md_apply)
 			{
-				// ticking a game switches "apply to" to the selected games
-				if (m.all_games)
-				{
-					m.all_games = false;
-					m.games.clear();
-					for (const auto &h : games) if (m.supports(h.id)) m.games.push_back(h.id);
-				}
-				m.set_game(g.id, !m.game_checked(g.id));
+				m.all_games = it->choice == 0;
+				if (!m.all_games && m.games.empty()) supported();          // start from every supported game
 			}
-			else message("This mod does not support that game", 2000);
+			else if (r.id >= ui::md_opt0 && r.id < ui::md_opt0 + int(m.options.size())) m.opt[m.options[size_t(r.id - ui::md_opt0)].id] = it->choice;
+			else if (r.id >= ui::md_game0 && r.id < ui::md_game0 + int(games.size()))
+			{
+				const game_info &g = games[size_t(r.id - ui::md_game0)];
+				// switching a game turns "apply to" to the selected games
+				if (m.all_games) { m.all_games = false; supported(); }
+				m.set_game(g.id, it->on);
+			}
+			m_mods.save();
 		}
-		m_mods.save();
+		ui::update_mods(m_mods_scr, mods_now(), m_mod_sel);
 	}
-
-	canvas cv(400, 300);
-	draw_background(cv);
-	cv.text(cv.w / 2 - cv.text_w(m.name.substr(0, 24), 2) / 2, 8, m.name.substr(0, 24), 0xffff8020, 2);
-	int y = cv.text_wrap(12, 28, m.error.empty() ? m.description : "ERROR: " + m.error, m.error.empty() ? 0xffd8e0ff : 0xffff6060);
-	y = std::max(y + 4, 50);
-	auto row = [&](int i, const std::string &label, const std::string &value, bool active)
-	{
-		bool sel = i == m_mod_row;
-		if (sel) cv.blend(12, y - 3, cv.w - 24, 14, 0xffffa020, 90);
-		cv.text(20, y, label, !active ? 0xff707070 : sel ? 0xffffffff : 0xffc8d8ff);
-		if (!value.empty())
-		{
-			std::string v = sel ? "< " + value + " >" : value;
-			cv.text(cv.w - 20 - cv.text_w(v), y, v, active ? 0xffffe080 : 0xff707070);
-		}
-		y += 14;
-	};
-	row(0, checkbox(m.enabled) + "Mod enabled", "", true);
-	row(1, "Apply to:", m.all_games ? "All games" : "Selected games", m.enabled);
-	for (int i = 0; i < nopt; i++)
-	{
-		const mod_option &o = m.options[size_t(i)];
-		row(2 + i, o.label.substr(0, 26), o.value_text(m.option_index(o)), m.enabled);
-	}
-	y += 4;
-	cv.text(20, y, "Games:", 0xffc0c0c0);
-	y += 12;
-	for (int i = 0; i < ng; i++)
-	{
-		const game_info &g = games[size_t(i)];
-		bool sup = m.supports(g.id);
-		bool on = sup && (m.all_games || m.game_checked(g.id));
-		row(2 + nopt + i, checkbox(on) + g.title, sup ? "" : "not supported", m.enabled && sup);
-	}
-	cv.text(8, cv.h - 21, "Enter / Left / Right: change", 0xffb0b0b0);
-	cv.text(8, cv.h - 11, "Esc: back", 0xffb0b0b0);
+	ui::update_mods(m_mods_scr, mods_now(), m_mod_sel);
+	follow_theme(games[size_t(std::clamp(m_sel, 0, int(games.size()) - 1))].id, now);
+	canvas cv(ui::screen::kW, ui::screen::kH);
+	m_mods_scr.draw(cv, m_theme, m_ui_in.last_device(), now);
 	if (!m_message.empty() && SDL_GetTicks() < m_message_until) menu_message(cv, m_message);
 	present(cv.px.data(), cv.w, cv.h, false);
-	SDL_Delay(16);
+	SDL_Delay(8);
 }
 
 void app::poll_news()
@@ -1322,33 +1272,73 @@ void app::apply_setup(const import_result &r)
 
 // Controls screen: choose all games or one game, pick a profile for each player,
 // remap its pad inputs and shortcuts, and create / delete / export / import profiles.
+// Controls (U3.3): who (game, player, profile), the buttons of that profile, and the
+// profile itself. A button is bound by pressing it; waiting five seconds, or Esc, cancels,
+// so a controller alone is enough.
 void app::controls_frame()
 {
 	static const char *act_en[kNumActions] = { "Up", "Down", "Left", "Right", "Shoot", "Pass", "Turbo", "Start", "Coin",
 	                                           "Shove", "Turbo shot", "Shortcut 1", "Shortcut 2" };
-	// button sets a custom shortcut can cycle through (Left/Right); any set can be written in the file
+	// button sets a custom shortcut can be given; any set can be written in the file
 	static const unsigned kMasks[] = { 0, 1u << A_SHOOT, 1u << A_PASS, 1u << A_TURBO, (1u << A_SHOOT) | (1u << A_PASS),
 	                                   (1u << A_TURBO) | (1u << A_SHOOT), (1u << A_TURBO) | (1u << A_PASS),
 	                                   (1u << A_TURBO) | (1u << A_SHOOT) | (1u << A_PASS), (1u << A_START) | (1u << A_COIN) };
 	const int nmask = int(sizeof(kMasks) / sizeof(kMasks[0]));
-	enum { R_GAME, R_PLAYER, R_PROFILE, R_ACT0, R_DEAD = R_ACT0 + kNumActions, R_NEW, R_RESET, R_DELETE, R_EXPORT, R_EXPORT_SETUP, R_IMPORT, R_BACK, R_COUNT };
+	ui_frame_begin();
+	const unsigned now = SDL_GetTicks();
 	auto &list = m_profiles.list();
 	const int ng = int(game_list().size());
 	if (m_ctl_game >= ng) m_ctl_game = -1;
 	std::string &slot = profile_slot(m_ctl_game, m_ctl_player);
 	if (!slot.empty() && m_profiles.find(slot) < 0) slot = m_ctl_game < 0 ? "Default" : "";
-	bool inherit = slot.empty();                       // per-game slot that follows the all-games choice
+	const bool inherit = slot.empty();                 // per-game slot that follows the all-games choice
 	const std::string &shown = inherit ? m_cfg.pad_profile[m_ctl_player] : slot;
-	int pi = std::max(0, m_profiles.find(shown));
+	const int pi = std::max(0, m_profiles.find(shown));
 	pad_profile &prof = list[size_t(pi)];
+	const int extra = m_ctl_game >= 0 ? 1 : 0;         // "as all games" is a choice when one game is selected
+
+	// what the screen shows
+	ui::controls_state st;
+	st.games.push_back("All games");
+	for (const game_info &g : game_list()) st.games.push_back(g.title);
+	st.game = m_ctl_game + 1;
+	st.player = m_ctl_player;
+	if (extra) st.profiles.push_back("As all games: " + m_cfg.pad_profile[m_ctl_player]);
+	for (const pad_profile &p : list) st.profiles.push_back(p.name);
+	st.profile = inherit ? 0 : m_profiles.find(slot) + extra;
+	SDL_GameController *pad = size_t(m_ctl_player) < m_pads.size() ? m_pads[size_t(m_ctl_player)] : nullptr;
+	if (pad) { const char *pn = SDL_GameControllerName(pad); st.pad = pn ? pn : "?"; }
+	const unsigned held = pad ? prof.buttons(pad) : 0;
+	for (int a = 0; a < kNumActions; a++)
+	{
+		bool live = (pad && prof.pressed(pad, a)) || (a < kNumButtons && ((held >> a) & 1u));
+		st.actions.push_back({ act_en[a], prof.action_text(a), live });
+	}
+	st.capturing = m_capture;
+	st.seconds = m_capture >= 0 ? int(m_capture_until - now) / 1000 + 1 : 0;
+	for (int k = 0; k < nmask; k++) st.shortcut_sets.push_back(combo_mask_text(kMasks[k]));
+	for (int c = 0; c < 2; c++)
+	{
+		const unsigned cm = prof.combo[int(A_CUSTOM1) - int(kNumButtons) + c];
+		int k = 0;
+		while (k < nmask && kMasks[k] != cm) k++;
+		if (k >= nmask) { st.shortcut_sets.push_back(combo_mask_text(cm)); k = int(st.shortcut_sets.size()) - 1; }   // a set written by hand in the file
+		st.shortcut[c] = k;
+	}
+	st.deadzone = std::clamp((prof.deadzone * 100 / 32767 + 2) / 5 * 5, 5, 95);
+	st.naming = m_editing;
+	st.name = m_edit;
+	if (m_ctl_scr.tabs.empty()) m_ctl_scr = ui::make_controls(st);
 
 	if (m_capture >= 0)
 	{
+		// the next press on the controller is the binding; pressing a bound input removes it
 		if (m_captured) { prof.add(m_capture, m_capture_in); m_profiles.save(prof); m_capture = -1; }
-		else if (m_menu_back || SDL_GetTicks() > m_capture_until) m_capture = -1;
+		else if (m_menu_back || now > m_capture_until) m_capture = -1;
 	}
 	else if (m_editing)
 	{
+		// the name of a new profile: Enter or A takes it as it stands, Esc or B cancels
 		if (m_menu_ok)
 		{
 			m_editing = false;
@@ -1369,67 +1359,64 @@ void app::controls_frame()
 	}
 	else
 	{
-		if (m_menu_back) { save_config(m_cfgpath, m_cfg); m_screen = screen::menu; return; }
-		if (m_menu_up) m_ctl_sel = (m_ctl_sel + R_COUNT - 1) % R_COUNT;
-		if (m_menu_down) m_ctl_sel = (m_ctl_sel + 1) % R_COUNT;
-		int d = m_menu_right ? 1 : m_menu_left ? -1 : 0;
-		if (m_ctl_sel == R_GAME && d) m_ctl_game = (m_ctl_game + 1 + ng + 1 + d) % (ng + 1) - 1;
-		if (m_ctl_sel == R_PLAYER && d) m_ctl_player = (m_ctl_player + 4 + d) % 4;
-		if (m_ctl_sel == R_PROFILE && (d || m_menu_ok))
+		ui::event ev;
+		while (m_ui_in.next(ev))
 		{
-			// choices: the profiles, plus "same as all games" when a single game is selected
-			int n = int(list.size()), extra = m_ctl_game >= 0 ? 1 : 0;
-			int cur = inherit ? -1 : m_profiles.find(slot);
-			int c = (cur + extra + (d ? d : 1) + n + extra) % (n + extra) - extra;
-			profile_slot(m_ctl_game, m_ctl_player) = c < 0 ? std::string() : list[size_t(c)].name;
-			save_config(m_cfgpath, m_cfg);
-			return;
-		}
-		if (m_ctl_sel == R_DEAD && d) { prof.deadzone = std::clamp(prof.deadzone + d * 1600, 1600, 32000); m_profiles.save(prof); }
-		if (m_ctl_sel >= R_ACT0 && m_ctl_sel < R_DEAD)
-		{
-			int a = m_ctl_sel - R_ACT0;
-			if (m_menu_ok) { m_capture = a; m_captured = false; m_capture_until = SDL_GetTicks() + 5000; }
-			if (m_menu_clear) { prof.bind[a].clear(); m_profiles.save(prof); }
-			if (a >= A_CUSTOM1 && d)
+			ui::result r = m_ctl_scr.handle(ev);
+			const ui::item *it = m_ctl_scr.find(r.id);
+			const bool on_action = r.id >= ui::ct_act0 && r.id < ui::ct_act0 + int(kNumActions);
+			if (r.what == ui::result::back) { save_config(m_cfgpath, m_cfg); m_screen = screen::menu; return; }
+			if (r.what == ui::result::changed && it)
 			{
-				unsigned &cm = prof.combo[a - kNumButtons];
-				int k = 0;
-				while (k < nmask && kMasks[k] != cm) k++;
-				cm = kMasks[(k >= nmask ? 0 : k + nmask + d) % nmask];
-				m_profiles.save(prof);
+				if (r.id == ui::ct_game) { m_ctl_game = it->choice - 1; return; }
+				if (r.id == ui::ct_player) { m_ctl_player = std::clamp(it->choice, 0, 3); return; }
+				if (r.id == ui::ct_profile)
+				{
+					int c = it->choice - extra;
+					profile_slot(m_ctl_game, m_ctl_player) = c < 0 || c >= int(list.size()) ? std::string() : list[size_t(c)].name;
+					save_config(m_cfgpath, m_cfg);
+					return;
+				}
+				if (r.id == ui::ct_dead) { prof.deadzone = std::clamp(int(it->value + 0.5f) * 32767 / 100, 1600, 32000); m_profiles.save(prof); }
+				if (r.id == ui::ct_short0 || r.id == ui::ct_short0 + 1)
+				{
+					const int which = r.id == ui::ct_short0 ? 0 : 1;
+					if (it->choice >= 0 && it->choice < nmask) prof.combo[int(A_CUSTOM1) - int(kNumButtons) + which] = kMasks[it->choice];
+					m_profiles.save(prof);
+					return;
+				}
 			}
-		}
-		if (m_menu_ok)
-		{
+			if (r.what == ui::result::context && on_action) { prof.bind[r.id - ui::ct_act0].clear(); m_profiles.save(prof); return; }
+			if (r.what != ui::result::activated) continue;
+			if (on_action) { m_capture = r.id - ui::ct_act0; m_captured = false; m_capture_until = now + 5000; return; }
 			std::string m, path;
-			switch (m_ctl_sel)
+			switch (r.id)
 			{
-				case R_NEW: m_edit = prof.name.substr(0, 18) + " copy"; m_editing = true; SDL_StartTextInput(); break;
-				case R_RESET:
+				case ui::ct_new: m_edit = prof.name.substr(0, 18) + " copy"; m_editing = true; SDL_StartTextInput(); return;
+				case ui::ct_reset:
 				{
 					pad_profile d0 = pad_profile::defaults();
 					d0.name = prof.name;
 					prof = d0;
 					m_profiles.save(prof);
 					message("Profile reset: " + prof.name);
-					break;
+					return;
 				}
-				case R_DELETE:
+				case ui::ct_delete:
 				{
 					std::string nm = prof.name;
-					if (!m_profiles.remove(nm)) { message("The Default profile cannot be deleted"); break; }
+					if (!m_profiles.remove(nm)) { message("The Default profile cannot be deleted"); return; }
 					for (auto &p : m_cfg.pad_profile) if (p == nm) p = "Default";
 					for (auto &g : m_cfg.game_profiles) for (auto &p : g.second) if (p == nm) p.clear();
 					save_config(m_cfgpath, m_cfg);
 					message("Profile deleted: " + nm);
 					return;
 				}
-				case R_EXPORT:
-				case R_EXPORT_SETUP:
+				case ui::ct_export:
+				case ui::ct_export_setup:
 				{
 					bool ok;
-					if (m_ctl_sel == R_EXPORT) ok = m_profiles.export_profile(prof, path);
+					if (r.id == ui::ct_export) ok = m_profiles.export_profile(prof, path);
 					else
 					{
 						std::string pl[4];
@@ -1442,81 +1429,30 @@ void app::controls_frame()
 						message("Exported (path copied): " + path.substr(m_base.size()), 6000);
 					}
 					else message("Could not export " + path, 5000);
-					break;
+					return;
 				}
-				case R_IMPORT:
+				case ui::ct_import:
 				{
 					std::vector<import_result> setups;
 					int n = m_profiles.import_folder(m, setups);
-					for (auto &r : setups) apply_setup(r);
+					for (auto &ir : setups) apply_setup(ir);
 					if (m.empty()) message("Copy .ini profiles to controller_profiles/import or drop them on the window", 6000);
 					else message(std::to_string(n) + " file(s) imported: " + m, 6000);
 					return;
 				}
-				case R_BACK: save_config(m_cfgpath, m_cfg); m_screen = screen::menu; return;
 			}
 		}
 	}
 
-	canvas cv(400, 300);
-	draw_background(cv);
-	std::string head = "CONTROLS";
-	cv.text(cv.w / 2 - cv.text_w(head, 2) / 2, 4, head, 0xffff8020, 2);
-	SDL_GameController *pad = size_t(m_ctl_player) < m_pads.size() ? m_pads[size_t(m_ctl_player)] : nullptr;
-	const char *pn = pad ? SDL_GameControllerName(pad) : nullptr;
-	std::string padline = "Pad: " + (pad ? std::string(pn ? pn : "?") : std::string("(not connected)"));
-	cv.text(16, 23, padline.substr(0, 46), pad ? 0xff80ff80 : 0xff909090, 1, false);
-
-	// rows, scrolled so the selection stays visible
-	struct line_t { std::string label, value; u32 vcol; };
-	std::vector<line_t> rows(R_COUNT);
-	rows[R_GAME] = { "Game", "< " + std::string(m_ctl_game < 0 ? "All games" : game_list()[size_t(m_ctl_game)].title) + " >", 0xffffe080 };
-	rows[R_PLAYER] = { "Player", "< " + std::string("P") + std::to_string(m_ctl_player + 1) + " >", 0xffffe080 };
-	rows[R_PROFILE] = { "Profile", "< " + (inherit ? std::string("as all: ") + prof.name : prof.name) + " >", 0xffffe080 };
-	unsigned held = pad ? prof.buttons(pad) : 0;
-	for (int a = 0; a < kNumActions; a++)
-	{
-		std::string label = act_en[a];
-		bool live = pad && prof.pressed(pad, a);
-		if (a < kNumButtons && ((held >> a) & 1u)) live = true;
-		std::string v = (m_capture == a) ? std::string("press a button/axis... (") + std::to_string(int(m_capture_until - SDL_GetTicks()) / 1000 + 1) + ")"
-		                                 : prof.action_text(a);
-		if (a >= kNumButtons && m_capture != a) v = "[" + combo_mask_text(prof.combo[a - kNumButtons]) + "] " + v;
-		rows[size_t(R_ACT0 + a)] = { label, v, m_capture == a ? 0xffffff40u : live ? 0xff60ff60u : 0xffffe080u };
-	}
-	rows[R_DEAD] = { "Dead zone", "< " + std::to_string(prof.deadzone * 100 / 32767) + "% >", 0xffffe080 };
-	rows[R_NEW] = { m_editing ? "Name: " + m_edit + ((SDL_GetTicks() / 400) % 2 ? "_" : " ") : "New profile (copy of this one)", "", 0 };
-	rows[R_RESET] = { "Reset to defaults", "", 0 };
-	rows[R_DELETE] = { "Delete profile", "", 0 };
-	rows[R_EXPORT] = { "Export profile", "", 0 };
-	rows[R_EXPORT_SETUP] = { m_ctl_game < 0 ? "Export setup for all games" : "Export setup for this game", "", 0 };
-	rows[R_IMPORT] = { "Import profiles / setups", "", 0 };
-	rows[R_BACK] = { "Back", "", 0 };
-	const int top = 35, rh = 11, vis = 19;
-	if (m_ctl_sel < m_ctl_scroll) m_ctl_scroll = m_ctl_sel;
-	if (m_ctl_sel >= m_ctl_scroll + vis) m_ctl_scroll = m_ctl_sel - vis + 1;
-	for (int r = m_ctl_scroll; r < std::min(int(R_COUNT), m_ctl_scroll + vis); r++)
-	{
-		int y = top + (r - m_ctl_scroll) * rh;
-		bool sel = r == m_ctl_sel;
-		if (sel) cv.blend(10, y - 2, cv.w - 20, rh, 0xffffa020, 90);
-		const line_t &l = rows[size_t(r)];
-		cv.text(16, y, l.label.substr(0, l.value.empty() ? 46 : 22), sel ? 0xffffffff : 0xffc8d8ff, 1, false);
-		if (!l.value.empty()) cv.text(196, y, l.value.substr(0, 25), l.vcol, 1, false);
-	}
-	if (m_ctl_scroll > 0) cv.text(cv.w - 16, top, "^", 0xffb0b0b0, 1, false);
-	if (m_ctl_scroll + vis < R_COUNT) cv.text(cv.w - 16, top + (vis - 1) * rh, "v", 0xffb0b0b0, 1, false);
-	bool custom = m_ctl_sel >= int(R_ACT0) + int(A_CUSTOM1) && m_ctl_sel < R_DEAD;
-	const char *help = m_capture >= 0 ? "Press a bound input to remove it. Esc: cancel"
-	                 : m_editing ? "Type the name and press Enter"
-	                 : custom ? "Enter/A: bind  Left/Right: shortcut buttons"
-	                 : "Enter/A: bind  Del/X: clear  Left/Right: change";
-	cv.text(8, cv.h - 21, help, 0xffb0b0b0, 1, false);
-	cv.text(8, cv.h - 11, m_ctl_game < 0 ? "Profile for every game (each game can override it)"
-	                                     : "Only for this game", 0xff909090, 1, false);
+	ui::update_controls(m_ctl_scr, st);
+	follow_theme(game_list()[size_t(std::clamp(m_sel, 0, ng - 1))].id, now);
+	canvas cv(ui::screen::kW, ui::screen::kH);
+	m_ctl_scr.draw(cv, m_theme, m_ui_in.last_device(), now);
+	if (m_capture >= 0) m_ctl_scr.toast("Press it now. Wait or Esc: cancel", now, 200);
+	else if (m_editing) m_ctl_scr.toast("Type a name. Enter or A: OK. Esc or B: cancel", now, 200);
 	if (!m_message.empty() && SDL_GetTicks() < m_message_until) menu_message(cv, m_message);
 	present(cv.px.data(), cv.w, cv.h, false);
-	SDL_Delay(16);
+	SDL_Delay(8);
 }
 
 void app::net_menu_frame()
@@ -1995,7 +1931,7 @@ int app::run()
 			case screen::about: about_frame(); next = clock::now(); continue;
 			case screen::news: news_frame(); next = clock::now(); continue;
 			case screen::mods: mods_frame(); next = clock::now(); continue;
-			case screen::mod_detail: mod_detail_frame(); next = clock::now(); continue;
+			case screen::mod_detail: m_screen = screen::mods; continue;
 			case screen::controls: controls_frame(); next = clock::now(); continue;
 			case screen::game: break;
 		}
