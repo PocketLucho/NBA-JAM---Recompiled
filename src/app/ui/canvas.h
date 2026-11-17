@@ -1,5 +1,5 @@
 // canvas.h - the 32-bit picture the menus are drawn into (400 x 300, shown 4:3 by the
-// presenter at any window size) and the 8x8 text on it. Moved out of main.cpp for the menu
+// presenter at any window size) and the text of the screens not yet rebuilt on the toolkit. Moved out of main.cpp for the menu
 // toolkit (roadmap U1); no SDL in here.
 #pragma once
 #include "../font.h"
@@ -7,6 +7,11 @@
 #include <cstdint>
 #include <string>
 #include <vector>
+
+struct canvas;
+// lettering.cpp: text in cells of 8 x 8 pixels times `scale`, as the old screens lay it
+// out, but in the project lettering
+namespace ui { void cell_text(canvas &cv, int x, int y, const std::string &s, uint32_t c, int scale); }
 
 struct canvas
 {
@@ -34,9 +39,18 @@ struct canvas
 		fill(x, y, ww, 1, c); fill(x, y + hh - 1, ww, 1, c);
 		fill(x, y, 1, hh, c); fill(x + ww - 1, y, 1, hh, c);
 	}
+	// Text of the screens that are not rebuilt on the toolkit yet (U3 does that): same
+	// places and sizes as before, a cell of 8 x 8 pixels times `scale` per character, but
+	// drawn in the project lettering, which has its own outline (`shadow` is not needed).
 	void text(int x, int y, const std::string &s, uint32_t c, int scale = 1, bool shadow = true)
 	{
-		if (shadow) text(x + scale, y + scale, s, 0xff000000, scale, false);
+		(void)shadow;
+		ui::cell_text(*this, x, y, s, c, scale);
+	}
+	// the plain 8x8 font, which has lower case: file names, folders and web addresses
+	void text_plain(int x, int y, const std::string &s, uint32_t c, int scale = 1, bool shadow = true)
+	{
+		if (shadow) text_plain(x + scale, y + scale, s, 0xff000000, scale, false);
 		for (size_t n = 0; n < s.size(); n++)
 		{
 			unsigned ch = static_cast<unsigned char>(s[n]);

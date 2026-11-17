@@ -56,6 +56,7 @@ Sections, in this order: **Added**, **Changed**, **Fixed**, **Online**, **Known 
 - The README is rewritten for players: download, where the ROMs go, first run, controls,
   online, mods and troubleshooting. Build instructions moved to `docs/BUILDING.md`.
 - The version is taken from the release tag instead of the build date.
+- Menus, messages and the in-game notices are drawn in the project's own chunky lettering instead of the plain 8x8 font. The screens are laid out as before; file names and web addresses keep the plain font so their lower case stays readable. Rebuilt screens follow.
 
 ### Fixed
 
