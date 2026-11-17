@@ -203,4 +203,151 @@ void read_settings(const screen &s, settings_state &st)
 	sli(st_scanlines, st.scanlines); sli(st_volume, st.volume);
 }
 
+// ---------------------------------------------------------------- Lua mods (U3.4)
+screen make_mods(const mods_state &st)
+{
+	screen s;
+	s.title = "LUA MODS";
+	s.prompts = { { act::context, "On/off" } };
+	tab t;
+	t.name = "Scripts";
+	panel list;
+	list.title = "Scripts";
+	list.r = { 0.0f, 0.0f, 0.4f, 1.0f };
+	for (size_t i = 0; i < st.mods.size(); i++) list.items.push_back(button(md_mod0 + int(i), st.mods[i].name));
+	if (st.mods.empty()) list.items.push_back(label("No scripts found"));
+	panel page;
+	page.r = { 0.42f, 0.0f, 0.58f, 1.0f };
+	t.panels = { list, page };
+	s.tabs = { t };
+	s.fix_focus();
+	update_mods(s, st, 0);
+	return s;
+}
+
+int mods_index(const screen &s, int last)
+{
+	const item *f = s.focused();
+	if (s.cur_panel == 0 && f && f->id >= md_mod0 && f->id < md_enabled) return f->id - md_mod0;
+	return last;
+}
+
+void update_mods(screen &s, const mods_state &st, int mod)
+{
+	if (s.tabs.empty() || s.tabs[0].panels.size() < 2) return;
+	for (size_t i = 0; i < st.mods.size(); i++)
+		if (item *it = s.find(md_mod0 + int(i)))
+		{
+			const mod_view &m = st.mods[i];
+			it->value_text = !m.error.empty() ? "Error" : m.enabled ? "On" : "Off";
+			it->dim = !m.enabled || !m.error.empty();
+		}
+	panel &page = s.tabs[0].panels[1];
+	const int px = int(s.panel_rect(1).w) - 30;
+	std::vector<item> items;
+	auto lines = [&](const std::string &text, int most) { for (auto &l : wrap_px(text, px, face::list, most)) items.push_back(label(l)); };
+	if (st.mods.empty())
+	{
+		lines("Put .lua scripts in this folder:", 2);
+		lines(st.folder, 4);
+		lines("They are listed here the next time this screen opens.", 3);
+	}
+	else
+	{
+		const mod_view &m = st.mods[size_t(std::clamp(mod, 0, int(st.mods.size()) - 1))];
+		page.title = m.name;
+		if (!m.error.empty())
+		{
+			items.push_back(header("THIS SCRIPT HAS AN ERROR"));
+			lines(m.error, 8);
+		}
+		else
+		{
+			lines(m.description, 5);
+			items.push_back(toggle(md_enabled, "Mod enabled", m.enabled));
+			items.push_back(picker(md_apply, "Apply to", { "All games", "Selected games" }, m.all_games ? 0 : 1));
+			if (!m.options.empty()) items.push_back(header("OPTIONS"));
+			for (size_t i = 0; i < m.options.size(); i++) items.push_back(picker(md_opt0 + int(i), m.options[i].label, m.options[i].values, m.options[i].value));
+			items.push_back(header("GAMES"));
+			for (size_t i = 0; i < m.games.size(); i++)
+			{
+				item g = toggle(md_game0 + int(i), m.games[i].supported ? m.games[i].title : m.games[i].title + " (not supported)", m.games[i].on);
+				g.disabled = !m.games[i].supported;
+				items.push_back(g);
+			}
+		}
+	}
+	if (st.mods.empty()) page.title.clear();
+	page.items = items;
+	if (page.focus >= int(page.items.size())) page.focus = 0;
+	s.fix_focus();
+}
+
+bool mods_open_page(screen &s)
+{
+	if (s.tabs.empty() || s.tabs[0].panels.size() < 2 || s.cur_panel != 0) return false;
+	panel &page = s.tabs[0].panels[1];
+	for (size_t i = 0; i < page.items.size(); i++)
+		if (page.items[i].focusable()) { s.cur_panel = 1; page.focus = int(i); page.scroll = 0; return true; }
+	return false;
+}
+
+// ---------------------------------------------------------------- Controls (U3.3)
+screen make_controls(const controls_state &st)
+{
+	screen s;
+	s.title = "CONTROLS";
+	s.prompts = { { act::context, "Clear" } };
+	tab t;
+	t.name = "Controller";
+	panel who;
+	who.title = "Who";
+	who.r = { 0.0f, 0.0f, 1.0f, 0.23f };
+	who.items = { picker(ct_game, "Game", st.games, st.game), picker(ct_player, "Player", { "Player 1", "Player 2", "Player 3", "Player 4" }, st.player),
+	              picker(ct_profile, "Profile", st.profiles, st.profile) };
+	panel acts;
+		acts.r = { 0.0f, 0.25f, 0.52f, 0.75f };
+	for (size_t i = 0; i < st.actions.size(); i++) acts.items.push_back(button(ct_act0 + int(i), st.actions[i].name));
+	panel prof;
+	prof.title = "This profile";
+	prof.r = { 0.54f, 0.25f, 0.46f, 0.75f };
+	prof.items = {
+		picker(ct_short0, "Shortcut 1", st.shortcut_sets, st.shortcut[0]), picker(ct_short0 + 1, "Shortcut 2", st.shortcut_sets, st.shortcut[1]),
+		slider(ct_dead, "Dead zone", float(st.deadzone), 5, 95, 5),
+		button(ct_new, "New profile (a copy)"), button(ct_reset, "Reset to defaults"), button(ct_delete, "Delete profile"),
+		button(ct_export, "Export profile"), button(ct_export_setup, "Export setup"), button(ct_import, "Import"),
+		label("* held now"),
+	};
+	t.panels = { who, acts, prof };
+	s.tabs = { t };
+	s.fix_focus();
+	update_controls(s, st);
+	return s;
+}
+
+void update_controls(screen &s, const controls_state &st)
+{
+	if (s.tabs.empty() || s.tabs[0].panels.size() < 3) return;
+	auto pick = [&](int id, const std::vector<std::string> &choices, int v)
+	{
+		if (item *i = s.find(id)) { i->choices = choices; i->choice = std::clamp(v, 0, std::max(0, int(choices.size()) - 1)); }
+	};
+	pick(ct_game, st.games, st.game);
+	if (item *i = s.find(ct_player)) i->choice = std::clamp(st.player, 0, 3);
+	pick(ct_profile, st.profiles, st.profile);
+	pick(ct_short0, st.shortcut_sets, st.shortcut[0]);
+	pick(ct_short0 + 1, st.shortcut_sets, st.shortcut[1]);
+	if (item *i = s.find(ct_dead)) i->value = float(std::clamp(st.deadzone, 5, 95));
+	// whose buttons: the player's controller, in the panel's title
+	s.tabs[0].panels[1].title = st.pad.empty() ? "Buttons (no controller)" : "Buttons: " + st.pad;
+	for (size_t a = 0; a < st.actions.size(); a++)
+		if (item *i = s.find(ct_act0 + int(a)))
+		{
+			if (st.capturing == int(a)) i->value_text = "Press it... " + std::to_string(st.seconds);
+			else i->value_text = (st.actions[a].held ? "* " : "") + st.actions[a].binding;
+		}
+	if (item *i = s.find(ct_new)) i->label = st.naming ? "Name: " + st.name + "_" : "New profile (a copy)";
+	if (item *i = s.find(ct_export_setup)) i->label = st.game > 0 ? "Export this game's setup" : "Export all-games setup";
+}
+
 } // namespace ui

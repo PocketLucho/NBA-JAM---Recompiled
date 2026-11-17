@@ -7,6 +7,10 @@
 //         it the highlighted game's name in its own lettering, its revision and, when it
 //         cannot be played, why; under it the rest of the program.
 //         With no game playable at all it says where the ROMs go.
+//   U3.3  Controls: who (game, player, profile), the profile's buttons, and the profile
+//         itself. A button is bound by pressing it.
+//   U3.4  Lua mods: the scripts in a list; beside it the highlighted script's page (on or
+//         off, which games, its options).
 //   U3.2  Settings: Video, Sound, Game and Program tabs. Everything on it is also on a key
 //         (F4 to F8, F11, - and +), which keep working.
 #pragma once
@@ -69,5 +73,53 @@ enum settings_id { st_shape = 1, st_scaling, st_shader, st_scanlines, st_sides, 
 screen make_settings(const settings_state &st);
 void show_settings(screen &s, const settings_state &st);        // the widgets take the state's values (a key changed one)
 void read_settings(const screen &s, settings_state &st);        // the state takes the widgets' values
+
+// ---------------------------------------------------------------- Lua mods (U3.4)
+struct mod_view
+{
+	std::string name, description, error;    // error: the script could not be read; nothing on its page can be changed
+	bool enabled = false, all_games = true;
+	struct option { std::string label; std::vector<std::string> values; int value = 0; };
+	std::vector<option> options;
+	struct game { std::string title; bool supported = true, on = false; };
+	std::vector<game> games;
+};
+
+struct mods_state
+{
+	std::vector<mod_view> mods;
+	std::string folder;                  // where the scripts go
+};
+
+enum mods_id { md_mod0 = 1, md_enabled = 500, md_apply, md_opt0 = 600, md_game0 = 700 };
+
+screen make_mods(const mods_state &st);
+int mods_index(const screen &s, int last);                 // the script the page is about
+void update_mods(screen &s, const mods_state &st, int mod);
+// Confirm on a script in the list: focus goes to its page, if there is anything to change there
+bool mods_open_page(screen &s);
+
+// ---------------------------------------------------------------- Controls (U3.3)
+struct controls_state
+{
+	std::vector<std::string> games;      // "All games" first
+	int game = 0, player = 0;
+	std::vector<std::string> profiles;   // the choices of the Profile row, as shown
+	int profile = 0;
+	std::string pad;                     // the player's controller, empty: none connected
+	struct action { std::string name, binding; bool held = false; };
+	std::vector<action> actions;
+	int capturing = -1, seconds = 0;     // the action waiting for a press, and how long it still waits
+	std::vector<std::string> shortcut_sets;
+	int shortcut[2] = { 0, 0 };          // what Shortcut 1 and 2 press: index into shortcut_sets
+	int deadzone = 35;                   // percent
+	bool naming = false;                 // a new profile's name is being typed
+	std::string name;
+};
+
+enum controls_id { ct_game = 1, ct_player, ct_profile, ct_act0 = 100, ct_short0 = 200, ct_dead = 210, ct_new, ct_reset, ct_delete, ct_export, ct_export_setup, ct_import };
+
+screen make_controls(const controls_state &st);
+void update_controls(screen &s, const controls_state &st);
 
 } // namespace ui
