@@ -262,6 +262,29 @@ int text_w(const std::string &s, face f)
 	return s.empty() ? 0 : w - gap(f);
 }
 
+// One letter as a mask of w x h cells; pass 0 paints its outline, pass 1 the letter itself:
+// a top-to-bottom gradient with a bevel (edges that face up or left catch the light, the
+// others are in shade).
+template <class At>
+static void paint(canvas &cv, int x, int y, int w, int h, At at, const ink &k, int pass, int reach, int lit_by, int shade_by)
+{
+	for (int py = 0; py < h; py++)
+		for (int px = 0; px < w; px++)
+		{
+			if (!at(px, py)) continue;
+			if (pass == 0)
+			{
+				for (int dy = -1; dy <= reach; dy++) for (int dx = -1; dx <= reach; dx++) dot(cv, x + px + dx, y + py + dy, k.outline);
+				continue;
+			}
+			uint32_t c = mixc(k.top, k.bottom, py * 255 / std::max(1, h - 1));
+			bool lit = !at(px, py - 1) || !at(px - 1, py), shade = !at(px, py + 1) || !at(px + 1, py);
+			if (lit && !shade) c = mixc(c, 0xffffffff, lit_by);
+			else if (shade && !lit) c = mixc(c, 0xff000000, shade_by);
+			dot(cv, x + px, y + py, c);
+		}
+}
+
 void draw_text(canvas &cv, int x, int y, const std::string &s, face f, const ink &k)
 {
 	const faces &fs = all();
@@ -274,71 +297,138 @@ void draw_text(canvas &cv, int x, int y, const std::string &s, face f, const ink
 		{
 			const glyph &g = fs.get(ch, int(f));
 			auto at = [&](int px, int py) { return px >= 0 && py >= 0 && px < g.w && py < h && g.m[size_t(py) * g.w + px]; };
-			for (int py = 0; py < h; py++)
-				for (int px = 0; px < g.w; px++)
-				{
-					if (!at(px, py)) continue;
-					if (pass == 0)
-					{
-						for (int dy = -1; dy <= reach; dy++) for (int dx = -1; dx <= reach; dx++) dot(cv, gx + px + dx, y + py + dy, k.outline);
-						continue;
-					}
-					uint32_t c = mixc(k.top, k.bottom, py * 255 / std::max(1, h - 1));
-					// bevel: edges that face up or left catch the light, the others are in shade
-					bool lit = !at(px, py - 1) || !at(px - 1, py), shade = !at(px, py + 1) || !at(px + 1, py);
-					if (lit && !shade) c = mixc(c, 0xffffffff, f == face::note ? 50 : 95);
-					else if (shade && !lit) c = mixc(c, 0xff000000, f == face::note ? 40 : 75);
-					dot(cv, gx + px, y + py, c);
-				}
+			paint(cv, gx, y, g.w, h, at, k, pass, reach, f == face::note ? 50 : 95, f == face::note ? 40 : 75);
 			gx += g.w + gap(f);
 		}
 	}
 }
 
-std::string fit_px(const std::string &s, int px, face f)
+// ---------------------------------------------------------------- a game's own lettering
+namespace
+{
+// the project's list drawing of a character, stretched to `h` rows (nearest cell)
+struct stretched
+{
+	const glyph &g;
+	int h, w;
+	stretched(char ch, int height) : g(all().get(ch, int(face::list))), h(std::max(1, height)), w(std::max(1, (g.w * std::max(1, height) + 4) / 8)) {}
+	bool at(int px, int py) const
+	{
+		if (px < 0 || py < 0 || px >= w || py >= h) return false;
+		return g.m[size_t(py * 8 / h) * g.w + size_t(px * g.w / w)] != 0;
+	}
+};
+int space_w(const rom_art::font &f) { return std::max(2, f.cap_h / 3); }
+int lum(uint32_t c) { return int((c >> 16) & 0xff) * 3 + int((c >> 8) & 0xff) * 6 + int(c & 0xff); }
+}
+
+ink ink_from(const rom_art::font &f)
+{
+	// from its capital A: the darkest colour is the outline; the letter's colour near the
+	// top and near the bottom, leaving the outline out, make the gradient
+	const rom_art::picture &a = f.glyph['A'];
+	ink k = { 0xffffffff, 0xffc0c0c0, 0xff000000 };
+	if (a.empty()) return k;
+	int darkest = 1 << 30, brightest = -1;
+	for (uint32_t c : a.px) if (c >> 24) { if (lum(c) < darkest) { darkest = lum(c); k.outline = c; } brightest = std::max(brightest, lum(c)); }
+	auto band = [&](int y0, int y1, uint32_t &out)
+	{
+		long r = 0, g = 0, b = 0, n = 0;
+		for (int y = std::max(0, y0); y < std::min(a.h, y1); y++)
+			for (int x = 0; x < a.w; x++)
+			{
+				uint32_t c = a.at(x, y);
+				if (!(c >> 24) || lum(c) * 2 < darkest + brightest) continue;
+				r += (c >> 16) & 0xff; g += (c >> 8) & 0xff; b += c & 0xff; n++;
+			}
+		if (n) out = 0xff000000 | uint32_t(r / n) << 16 | uint32_t(g / n) << 8 | uint32_t(b / n);
+	};
+	band(0, std::max(1, a.h * 2 / 5), k.top);
+	k.bottom = k.top;
+	band(a.h - std::max(1, a.h * 2 / 5), a.h, k.bottom);
+	return k;
+}
+
+int text_w(const std::string &s, const rom_art::font &f)
+{
+	int w = 0;
+	for (char ch : s)
+		w += (ch == ' ' ? space_w(f) : f.has(ch) ? f.glyph[static_cast<unsigned char>(ch)].w : stretched(ch, f.cap_h).w) + 1;
+	return s.empty() ? 0 : w - 1;
+}
+
+void draw_text(canvas &cv, int x, int y, const std::string &s, const rom_art::font &f, uint32_t tint)
+{
+	auto tinted = [tint](uint32_t c)
+	{
+		auto ch = [&](int sh) { return uint32_t(((c >> sh) & 0xff) * ((tint >> sh) & 0xff) / 255) << sh; };
+		return 0xff000000 | ch(16) | ch(8) | ch(0);
+	};
+	ink k = ink_from(f);
+	k.top = tinted(k.top); k.bottom = tinted(k.bottom); k.outline = tinted(k.outline);
+	for (char ch : s)
+	{
+		if (ch == ' ') { x += space_w(f) + 1; continue; }
+		if (f.has(ch))
+		{
+			// letters stand on one line; a taller one (a Q's tail) hangs below it
+			const rom_art::picture &g = f.glyph[static_cast<unsigned char>(ch)];
+			int gy = y + std::max(0, f.cap_h - g.h);
+			for (int py = 0; py < g.h; py++) for (int px = 0; px < g.w; px++) if (g.at(px, py) >> 24) dot(cv, x + px, gy + py, tinted(g.at(px, py)));
+			x += g.w + 1;
+			continue;
+		}
+		stretched st(ch, f.cap_h);
+		auto at = [&](int px, int py) { return st.at(px, py); };
+		for (int pass = 0; pass < 2; pass++) paint(cv, x, y, st.w, st.h, at, k, pass, 1, 60, 50);
+		x += st.w + 1;
+	}
+}
+
+std::string fit_px(const std::string &s, int px, const measure_fn &width)
 {
 	if (px <= 0) return "";
-	if (text_w(s, f) <= px) return s;
+	if (width(s) <= px) return s;
 	std::string t = s;
 	while (!t.empty())
 	{
 		t.pop_back();
 		while (!t.empty() && t.back() == ' ') t.pop_back();
-		if (text_w(t + "..", f) <= px) return t + "..";
+		if (width(t + "..") <= px) return t + "..";
 	}
 	return "";
 }
 
-std::string marquee_px(const std::string &s, int px, face f, unsigned now_ms)
+std::string marquee_px(const std::string &s, int px, const measure_fn &width, unsigned now_ms)
 {
 	if (px <= 0) return "";
-	if (text_w(s, f) <= px) return s;
+	if (width(s) <= px) return s;
 	// how far the window has to travel for the end of the text to show
 	unsigned over = 0;
-	while (over < s.size() && text_w(s.substr(over), f) > px) over++;
+	while (over < s.size() && width(s.substr(over)) > px) over++;
 	const unsigned pause = 900, per_char = 170;
 	unsigned cycle = pause * 2 + over * per_char, t = now_ms % cycle;
 	unsigned off = t < pause ? 0 : std::min(over, (t - pause) / per_char);
 	std::string win = s.substr(off);
-	while (!win.empty() && text_w(win, f) > px) win.pop_back();
+	while (!win.empty() && width(win) > px) win.pop_back();
 	return win;
 }
 
-std::vector<std::string> wrap_px(const std::string &s, int px, face f, int max_lines)
+std::vector<std::string> wrap_px(const std::string &s, int px, const measure_fn &width, int max_lines)
 {
 	std::vector<std::string> out;
 	std::string rest = s;
 	while (!rest.empty() && int(out.size()) < max_lines)
 	{
-		if (int(out.size()) == max_lines - 1) { out.push_back(fit_px(rest, px, f)); break; }
+		if (int(out.size()) == max_lines - 1) { out.push_back(fit_px(rest, px, width)); break; }
 		size_t take = rest.size();
-		if (text_w(rest, f) > px)
+		if (width(rest) > px)
 		{
 			// the last space that still leaves the line narrow enough
 			take = 0;
 			for (size_t i = 1; i < rest.size(); i++)
-				if (rest[i] == ' ') { if (text_w(rest.substr(0, i), f) <= px) take = i; else break; }
-			if (take == 0) { take = 1; while (take < rest.size() && text_w(rest.substr(0, take + 1), f) <= px) take++; }
+				if (rest[i] == ' ') { if (width(rest.substr(0, i)) <= px) take = i; else break; }
+			if (take == 0) { take = 1; while (take < rest.size() && width(rest.substr(0, take + 1)) <= px) take++; }
 		}
 		out.push_back(rest.substr(0, take));
 		rest = rest.substr(take);
@@ -346,6 +436,10 @@ std::vector<std::string> wrap_px(const std::string &s, int px, face f, int max_l
 	}
 	return out;
 }
+
+std::string fit_px(const std::string &s, int px, face f) { return fit_px(s, px, [f](const std::string &t) { return text_w(t, f); }); }
+std::string marquee_px(const std::string &s, int px, face f, unsigned now_ms) { return marquee_px(s, px, [f](const std::string &t) { return text_w(t, f); }, now_ms); }
+std::vector<std::string> wrap_px(const std::string &s, int px, face f, int max_lines) { return wrap_px(s, px, [f](const std::string &t) { return text_w(t, f); }, max_lines); }
 
 std::vector<std::string> lettering_errors() { return all().errors; }
 

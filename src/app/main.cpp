@@ -8,6 +8,7 @@
 #include "ui/canvas.h"
 #include "ui/gallery.h"
 #include "ui/art_view.h"
+#include "ui/themes.h"
 #include "ui/ui_sdl.h"
 #include "miniz.h"
 #include "gl_present.h"
@@ -1644,9 +1645,16 @@ void app::choose_data_folder()
 // the unified input layer: controller, keyboard, mouse and touch. Back leaves it.
 void app::gallery_loop()
 {
-	ui::screen scr = ui::make_gallery();
+	// the last tab tries the theme of each game family (U2.3), with the art of the user's ROMs
+	std::vector<ui::theme_spec> specs;
+	std::vector<std::string> names;
+	for (const std::string &id : ui::theme_ids()) { specs.push_back(ui::load_theme_spec(id, m_base)); names.push_back(specs.back().name); }
+	std::map<std::string, rom_art::art_set> arts;          // read when a theme first asks for a game
+	ui::screen scr = ui::make_gallery(names);
 	ui::input in;
-	ui::theme th;
+	ui::theme th, from, to;                                 // th is what is drawn; a change fades from `from` to `to`
+	unsigned fade_start = 0;
+	bool fading = false;
 	while (true)
 	{
 		int dw = 0, dh = 0, ww = 0, wh = 0;
@@ -1678,7 +1686,34 @@ void app::gallery_loop()
 		in.tick(now);
 		ui::event ev;
 		while (in.next(ev))
-			if (ui::gallery_react(scr, scr.handle(ev), now)) return;
+		{
+			ui::result r = scr.handle(ev);
+			if (r.what == ui::result::activated && r.id >= ui::g_theme0 && r.id < ui::g_theme0 + int(specs.size()))
+			{
+				const ui::theme_spec &sp = specs[size_t(r.id - ui::g_theme0)];
+				const rom_art::art_set *art = nullptr;
+				for (const std::string &gid : sp.games)
+				{
+					if (!arts.count(gid))
+					{
+						rom_art::roms roms;
+						arts[gid] = rom_art::art_set();
+						for (const game_info &g : game_list()) if (gid == g.id && m_cat->art_roms(g, roms)) arts[gid] = rom_art::read(roms);
+					}
+					if (!arts[gid].empty()) { art = &arts[gid]; break; }
+				}
+				from = th; to = ui::make_theme(sp, art);
+				fade_start = now; fading = true;
+				scr.toast(art || sp.games.empty() ? sp.name : sp.name + ": no ROMs, so the neutral theme", now);
+			}
+			if (ui::gallery_react(scr, r, now)) return;
+		}
+		if (fading)
+		{
+			float t = float(now - fade_start) / float(ui::kThemeFadeMs);
+			th = ui::mix_themes(from, to, t);
+			fading = t < 1;
+		}
 		canvas cv(ui::screen::kW, ui::screen::kH);
 		scr.draw(cv, th, in.last_device(), now);
 		present(cv.px.data(), cv.w, cv.h, false);

@@ -556,17 +556,33 @@ result screen::handle(const event &e)
 void screen::draw(canvas &cv, const theme &th, device dev, unsigned now_ms) const
 {
 	// all text is the project lettering (U2.1), measured in pixels
-	auto put = [&](int x, int y, const std::string &s, uint32_t c, face f = face::list) { draw_text(cv, x, y, s, f, th.ink_for(c)); };
-	auto wide = [](const std::string &s) { return text_w(s, face::list); };
+	// rows and tabs are in the theme's ROM font when it has one (U2.3), tinted by their colour
+	const rom_art::font *lf = th.list_font.get();
+	auto put = [&](int x, int y, const std::string &s, uint32_t c, face f = face::list)
+	{
+		if (lf && f == face::list) draw_text(cv, x, y + std::max(0, 8 - lf->cap_h) / 2, s, *lf, c);
+		else draw_text(cv, x, y, s, f, th.ink_for(c));
+	};
+	const measure_fn wide = [lf](const std::string &s) { return lf ? text_w(s, *lf) : text_w(s, face::list); };
 
 	// background: vertical gradient
-	for (int y = 0; y < cv.h; y++)
+	if (th.backdrop.size() == cv.px.size()) cv.px = th.backdrop;
+	else
+		for (int y = 0; y < cv.h; y++)
+		{
+			auto mix = [&](int sh) { int a = (th.bg_top >> sh) & 0xff, b = (th.bg_bottom >> sh) & 0xff; return uint32_t(a + (b - a) * y / std::max(1, cv.h - 1)) << sh; };
+			cv.fill(0, y, cv.w, 1, 0xff000000 | mix(16) | mix(8) | mix(0));
+		}
+	if (const rom_art::font *tf = th.title_font.get())
 	{
-		auto mix = [&](int sh) { int a = (th.bg_top >> sh) & 0xff, b = (th.bg_bottom >> sh) & 0xff; return uint32_t(a + (b - a) * y / std::max(1, cv.h - 1)) << sh; };
-		cv.fill(0, y, cv.w, 1, 0xff000000 | mix(16) | mix(8) | mix(0));
+		std::string ttl = fit_px(title, cv.w - 16, [tf](const std::string &s) { return text_w(s, *tf); });
+		draw_text(cv, cv.w / 2 - text_w(ttl, *tf) / 2, 3 + std::max(0, 16 - tf->cap_h) / 2, ttl, *tf);
 	}
-	std::string ttl = fit_px(title, cv.w - 16, face::title);
-	draw_text(cv, cv.w / 2 - text_w(ttl, face::title) / 2, 3, ttl, face::title, { th.title_top, th.title_bottom, th.outline });
+	else
+	{
+		std::string ttl = fit_px(title, cv.w - 16, face::title);
+		draw_text(cv, cv.w / 2 - text_w(ttl, face::title) / 2, 3, ttl, face::title, { th.title_top, th.title_bottom, th.outline });
+	}
 	if (tabs.empty()) return;
 
 	// tab bar
@@ -575,7 +591,7 @@ void screen::draw(canvas &cv, const theme &th, device dev, unsigned now_ms) cons
 		rectf r = tab_rect(t);
 		bool sel = t == cur_tab;
 		if (sel) cv.fill(int(r.x), int(r.y), int(r.w), int(r.h), th.strip);
-		put(int(r.x) + 5, int(r.y) + 2, tabs[size_t(t)].name, sel ? th.tab_sel : th.tab);
+		put(int(r.x) + 5, int(r.y) + 2, fit_px(tabs[size_t(t)].name, int(r.w) - 6, wide), sel ? th.tab_sel : th.tab);
 		if (sel) cv.fill(int(r.x), int(r.y + r.h) - 2, int(r.w), 2, th.bar);
 	}
 	cv.fill(int(kX0), kTabsY + 13, int(kW0), 1, th.panel_edge);
@@ -585,7 +601,8 @@ void screen::draw(canvas &cv, const theme &th, device dev, unsigned now_ms) cons
 	{
 		const panel &pn = panels()[size_t(p)];
 		rectf r = panel_rect(p);
-		cv.fill(int(r.x), int(r.y), int(r.w), int(r.h), th.panel);
+		if (th.panel_alpha >= 255 || th.backdrop.empty()) cv.fill(int(r.x), int(r.y), int(r.w), int(r.h), th.panel);
+		else cv.blend(int(r.x), int(r.y), int(r.w), int(r.h), th.panel, std::max(0, th.panel_alpha));
 		cv.frame(int(r.x), int(r.y), int(r.w), int(r.h), p == cur_panel ? th.bar : th.panel_edge);
 		if (!pn.title.empty())
 		{
@@ -609,7 +626,7 @@ void screen::draw(canvas &cv, const theme &th, device dev, unsigned now_ms) cons
 		{
 			// grid cell: centred, boxed
 			cv.frame(x, y, w, kRow - 1, it.disabled ? th.text_off : th.panel_edge);
-			std::string t = foc ? marquee_px(it.label, room, face::list, now_ms) : fit_px(it.label, room, face::list);
+			std::string t = foc ? marquee_px(it.label, room, wide, now_ms) : fit_px(it.label, room, wide);
 			put(x + (w - wide(t)) / 2, y + 2, t, col);
 			continue;
 		}
@@ -620,10 +637,10 @@ void screen::draw(canvas &cv, const theme &th, device dev, unsigned now_ms) cons
 		else if (it.k == kind::slider) { char b[16]; snprintf(b, sizeof(b), it.step >= 1 ? "%.0f" : "%.1f", double(it.value)); val = b; }
 		else if (it.k == kind::button) val = it.value_text;
 		int bar_w = it.k == kind::slider ? int(s.r.w * 0.45f) - 34 : 0;
-		std::string v = fit_px(val, it.k == kind::slider ? 30 : room / 2, face::list);
+		std::string v = fit_px(val, it.k == kind::slider ? 30 : room / 2, wide);
 		int label_px = room - (v.empty() ? 0 : wide(v) + 8);
 		if (bar_w > 8) label_px = w - 4 - 32 - bar_w - 12;      // up to the slider's bar, with a gap
-		std::string t = foc ? marquee_px(it.label, label_px, face::list, now_ms) : fit_px(it.label, label_px, face::list);
+		std::string t = foc ? marquee_px(it.label, label_px, wide, now_ms) : fit_px(it.label, label_px, wide);
 		put(x + (it.k == kind::header ? 2 : 6), y + 2, t, col);
 		if (!v.empty())
 		{
@@ -659,7 +676,7 @@ void screen::draw(canvas &cv, const theme &th, device dev, unsigned now_ms) cons
 
 	if (!m_toast.empty() && now_ms < m_toast_until)
 	{
-		std::string t = fit_px(m_toast, line - 16, face::list);
+		std::string t = fit_px(m_toast, line - 16, wide);
 		int w = wide(t) + 16, x = (cv.w - w) / 2, y = kBottom - 18;
 		cv.fill(x, y, w, 14, th.strip);
 		cv.frame(x, y, w, 14, th.bar);
@@ -674,7 +691,7 @@ void screen::draw(canvas &cv, const theme &th, device dev, unsigned now_ms) cons
 		cv.frame(x, y, w, h, th.bar);
 		// the question, wrapped inside the box
 		int ty = y + 10;
-		for (const std::string &l : wrap_px(m_dialog, w - 20, face::list, 4)) { put(x + 10, ty, l, th.tab_sel); ty += 12; }
+		for (const std::string &l : wrap_px(m_dialog, w - 20, wide, 4)) { put(x + 10, ty, l, th.tab_sel); ty += 12; }
 		for (bool yes : { true, false })
 		{
 			rectf b = dialog_button(yes);

@@ -26,6 +26,7 @@
 #include "lettering.h"
 #include <cstdint>
 #include <deque>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -144,6 +145,11 @@ struct theme
 	         text = 0xffc8d8ff, text_focus = 0xffffffff, text_off = 0xff707088, header = 0xff80ff80,
 	         bar = 0xffffa020, value = 0xffffe080, status = 0xffb0b0b0, dialog = 0xff241a50;
 	ink ink_for(uint32_t colour) const { return ink_of(colour, outline); }
+	// art read from the user's ROMs for this theme (U2.3, themes.h); without it the screens use
+	// the gradient and the project lettering
+	std::vector<uint32_t> backdrop;                        // kW x kH pixels, painted instead of the gradient
+	std::shared_ptr<const rom_art::font> title_font, list_font;
+	int panel_alpha = 255;                                 // how solid the panels are over the backdrop
 };
 
 struct result
