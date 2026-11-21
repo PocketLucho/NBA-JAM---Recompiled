@@ -7,7 +7,9 @@ Si quieres apoyarme ve a https://buymeacoffee.com/pocket_lucho
 Windows: ejecuta NBAJamRecomp.exe (Windows 10/11 de 64 bits, sin instalacion).
 Linux / SteamOS: ejecuta NBAJamRecomp (ver "LINUX Y STEAMOS" mas abajo).
 Al arrancar aparece un menu para elegir el juego (flechas + Enter, o el mando).
-Esc vuelve al menu. El idioma (castellano / English) se cambia en el menu.
+Esc vuelve al menu. El idioma (castellano / English) se cambia en el menu y
+"Salir" cierra el programa (Esc o B en el menu llevan a "Salir"; otra
+pulsacion lo cierra). El menu se adapta a pantallas panoramicas.
 
 (English: see README.txt)
 
@@ -43,8 +45,26 @@ que fichero falta.
 Las versiones marcadas SRC (T.E. 4.0, Special Edition 5.02 y Maximum Hangtime
 1.3) se han compilado desde el codigo fuente publicado y el resultado es
 identico byte a byte a la ROM original, asi que da igual de donde salgan los
-datos. Quien quiera compilarlas el mismo puede usar tools/build_roms.sh del
-codigo fuente: lo que genera en data\ se usa si no se encuentran las ROMs.
+datos. Si quieres compilarlas tu mismo, mira "COMPILAR DESDE LA FUENTE".
+
+
+COMPILAR DESDE LA FUENTE (opcional)
+-----------------------------------
+  tools/build_data.sh crea la carpeta data/ compilando los juegos desde el
+  codigo fuente: ensambla el programa, empaqueta el arte con el LOAD2.EXE de
+  Midway (mediante emu2, incluido en tools/emu2) y comprueba que el resultado
+  es identico a las ROMs originales. La app usa data/ cuando no encuentra las
+  ROMs en roms/.
+
+  1. Copia en roms/ los ZIP de los TRES repositorios (Code -> Download ZIP):
+     nba-jam-tournament-edition, nba-jam-tournament-edition-SE y nba-hangtime.
+  2. Linux / SteamOS: abre una terminal (Konsole) en la carpeta del programa y
+     ejecuta:   tools/build_data.sh
+     Windows: hace falta WSL (Ubuntu). En una terminal de WSL ve a la carpeta
+     del programa (por ejemplo cd /mnt/c/Users/TU_USUARIO/Desktop/NBAJamRecomp)
+     y ejecuta:   bash tools/build_data.sh
+  Necesita python3 (SteamOS y Ubuntu lo traen), unos minutos y unos 4 GB
+  libres temporalmente.
 
 
 LINUX Y STEAMOS (Steam Deck, Legion Go S...)
@@ -124,6 +144,11 @@ JUEGO EN RED (online)
   * Por internet el anfitrion debe redirigir el puerto UDP (7845) en su router
     o usar una red virtual (Tailscale, ZeroTier, Radmin VPN).
   * Si aparece "DESINCRONIZACION", salid (Esc) y volved a crear la partida.
+  * SteamOS: funciona igual (tambien contra un PC con Windows). Para escribir
+    la IP en modo juego abre el teclado con Steam + X. Steam no puede hacer de
+    intermediario (invitaciones de amigos o Remote Play Together) porque el
+    programa no es un juego de la tienda; por internet usa Tailscale o
+    ZeroTier, que tambien se pueden instalar en SteamOS.
 
 
 CARPETAS

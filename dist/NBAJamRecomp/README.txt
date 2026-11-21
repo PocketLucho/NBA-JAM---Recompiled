@@ -7,7 +7,9 @@ If you want to support me, go to https://buymeacoffee.com/pocket_lucho
 Windows: run NBAJamRecomp.exe (64-bit Windows 10/11, no installation).
 Linux / SteamOS: run NBAJamRecomp (see "LINUX AND STEAMOS" below).
 A menu lets you pick the game (arrows + Enter, or a gamepad). Esc goes back to the menu. The
-language (castellano / English) is chosen in the menu.
+language (castellano / English) is chosen in the menu and "Quit" closes the
+program (Esc or B in the menu go to "Quit"; one more press closes it). The
+menu adapts to widescreen displays.
 
 (Castellano: ver LEEME.txt)
 
@@ -43,8 +45,26 @@ missing.
 The versions tagged SRC (T.E. 4.0, Special Edition 5.02 and Maximum Hangtime
 1.3) were compiled from the published source code and the result is
 byte-identical to the original ROMs, so it does not matter where the data
-comes from. To build them yourself use tools/build_roms.sh from the source
-code: its output in data\ is used when the ROMs are not found.
+comes from. To build them yourself, see "BUILDING FROM SOURCE".
+
+
+BUILDING FROM SOURCE (optional)
+-------------------------------
+  tools/build_data.sh creates the data/ folder by compiling the games from the
+  source code: it assembles the program, packs the art with Midway's LOAD2.EXE
+  (through emu2, included in tools/emu2) and checks that the result is
+  identical to the original ROMs. The app uses data/ when the ROMs are not in
+  roms/.
+
+  1. Copy the ZIPs of the THREE repositories (Code -> Download ZIP) to roms/:
+     nba-jam-tournament-edition, nba-jam-tournament-edition-SE and nba-hangtime.
+  2. Linux / SteamOS: open a terminal (Konsole) in the program folder and run:
+        tools/build_data.sh
+     Windows: WSL (Ubuntu) is needed. In a WSL terminal go to the program
+     folder (e.g. cd /mnt/c/Users/YOUR_USER/Desktop/NBAJamRecomp) and run:
+        bash tools/build_data.sh
+  Needs python3 (SteamOS and Ubuntu have it), a few minutes and about 4 GB of
+  temporary free space.
 
 
 LINUX AND STEAMOS (Steam Deck, Legion Go S...)
@@ -122,6 +142,11 @@ ONLINE PLAY
   * Over the internet the host must forward UDP port 7845 on the router, or
     use a virtual LAN (Tailscale, ZeroTier, Radmin VPN).
   * If "DESYNC" appears, leave (Esc) and host the game again.
+  * SteamOS: works the same (also against a Windows PC). To type the IP in
+    game mode open the keyboard with Steam + X. Steam cannot relay the game
+    (friend invites or Remote Play Together) because the program is not a
+    store game; over the internet use Tailscale or ZeroTier, which can also be
+    installed on SteamOS.
 
 
 FOLDERS

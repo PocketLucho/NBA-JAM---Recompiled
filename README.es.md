@@ -17,13 +17,6 @@ Si quieres apoyarme ve a https://buymeacoffee.com/pocket_lucho
 | NBA Hangtime, L1.3 / L1.1 | Wolf Unit | funciona con las ROMs |
 | NBA Maximum Hangtime, 1.3 | Wolf Unit | **compilado desde la fuente: programa identico** (tambien la 1.03 de MAME) |
 
-## Descarga
-
-* Windows 10/11 x64: [releases/NBAJamRecomp-windows-x64.zip](releases/NBAJamRecomp-windows-x64.zip)
-* Linux x64 (glibc 2.38+): [releases/NBAJamRecomp-linux-x64.tar.gz](releases/NBAJamRecomp-linux-x64.tar.gz)
-
-Descomprime, copia tus ROMs en `roms/` (ver abajo) y ejecuta `NBAJamRecomp`.
-
 ## No incluye datos de los juegos
 
 El codigo, los graficos, el sonido y la musica de Midway tienen derechos de autor, asi que
@@ -72,6 +65,9 @@ git clone https://github.com/Asure/nba-jam-tournament-edition-SE        repos/nb
 git clone https://github.com/historicalsource/nba-hangtime              repos/nba-hangtime
 tools/build_roms.sh repos /ruta/a/emu2 dist/NBAJamRecomp/data
 ```
+
+Desde un paquete publicado es mas facil: copia los ZIP de los tres repositorios en `roms/` y ejecuta
+`tools/build_data.sh` (Linux, SteamOS o WSL); los descomprime y usa el emu2 estatico incluido.
 
 El script ensambla y enlaza cada juego con `gspasm`, ejecuta el `LOAD2.EXE` de Midway para
 empaquetar el arte, compara el resultado con las ROMs originales y escribe `data/<juego>/`.

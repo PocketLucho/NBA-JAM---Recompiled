@@ -141,20 +141,24 @@ static void load_config(const std::string &path, config &c)
 // ---------------------------------------------------------------------------
 struct canvas
 {
-	int w, h;
+	// w x h is the drawing area; the pixels are pw wide, with the drawing area centred
+	// (ox = left margin), so that menus fill a widescreen window without stretching
+	int w, h, pw, ox = 0;
 	std::vector<u32> px;
-	canvas(int W, int H) : w(W), h(H), px(size_t(W) * H, 0xff000000) {}
+	canvas(int W, int H, int PW = 0) : w(W), h(H), pw(std::max(W, PW)), ox((pw - W) / 2), px(size_t(pw) * H, 0xff000000) {}
 	void fill(int x, int y, int ww, int hh, u32 c)
 	{
+		x += ox;
 		for (int j = std::max(0, y); j < std::min(h, y + hh); j++)
-			for (int i = std::max(0, x); i < std::min(w, x + ww); i++) px[size_t(j) * w + i] = c;
+			for (int i = std::max(0, x); i < std::min(pw, x + ww); i++) px[size_t(j) * pw + i] = c;
 	}
 	void blend(int x, int y, int ww, int hh, u32 c, int alpha)
 	{
+		x += ox;
 		for (int j = std::max(0, y); j < std::min(h, y + hh); j++)
-			for (int i = std::max(0, x); i < std::min(w, x + ww); i++)
+			for (int i = std::max(0, x); i < std::min(pw, x + ww); i++)
 			{
-				u32 &d = px[size_t(j) * w + i];
+				u32 &d = px[size_t(j) * pw + i];
 				auto mix = [&](int sh) { return u32((((d >> sh) & 0xff) * (255 - alpha) + ((c >> sh) & 0xff) * alpha) / 255) << sh; };
 				d = 0xff000000 | mix(16) | mix(8) | mix(0);
 			}
@@ -243,6 +247,7 @@ private:
 	cabinet_inputs gather_inputs();
 	void draw_overlay(canvas &cv);
 	void draw_background(canvas &cv);
+	int menu_width() const;
 	float aspect_value() const { static const float a[4] = { 4.0f / 3.0f, 16.0f / 9.0f, 16.0f / 10.0f, 0.0f }; return a[std::clamp(m_cfg.aspect, 0, 3)]; }
 	void save_screenshot(const u32 *px, int w, int h);
 	void refresh_availability();
@@ -318,10 +323,11 @@ void app::open_window()
 void app::present(const u32 *pixels, int w, int h, bool game)
 {
 	int shader = game ? m_cfg.shader : 0;
+	float menu_aspect = float(w) / float(h);          // menus: square pixels at any width
 	if (m_shot && !game) save_screenshot(pixels, w, h);
 	if (m_gl.ok())
 	{
-		m_gl.present(pixels, w, h, shader, game ? m_cfg.integer_scale : false, m_cfg.scan_strength, game ? aspect_value() : 4.0f / 3.0f);
+		m_gl.present(pixels, w, h, shader, game ? m_cfg.integer_scale : false, m_cfg.scan_strength, game ? aspect_value() : menu_aspect);
 		return;
 	}
 	bool smooth = shader == 1;
@@ -337,7 +343,7 @@ void app::present(const u32 *pixels, int w, int h, bool game)
 	int ww, wh;
 	SDL_GetRendererOutputSize(m_ren, &ww, &wh);
 	SDL_Rect dst;
-	output_rect(ww, wh, w, h, game && m_cfg.integer_scale, game ? aspect_value() : 4.0f / 3.0f, dst.x, dst.y, dst.w, dst.h);
+	output_rect(ww, wh, w, h, game && m_cfg.integer_scale, game ? aspect_value() : menu_aspect, dst.x, dst.y, dst.w, dst.h);
 	SDL_SetRenderDrawColor(m_ren, 0, 0, 0, 255);
 	SDL_RenderClear(m_ren);
 	SDL_RenderCopy(m_ren, m_tex, nullptr, &dst);
@@ -591,17 +597,27 @@ void app::draw_overlay(canvas &cv)
 	}
 }
 
+// width of the menu screens: 300 lines high, as wide as the window's shape (4:3 up to 21:9)
+int app::menu_width() const
+{
+	int ww = 4, wh = 3;
+	if (m_win) SDL_GetWindowSize(m_win, &ww, &wh);
+	int w = int(300.0f * float(ww) / float(std::max(1, wh)) + 0.5f) & ~1;
+	return std::clamp(w, 400, 700);
+}
+
 void app::draw_background(canvas &cv)
 {
 	for (int y = 0; y < cv.h; y++)
 	{
 		u32 r = 20 + y / 10, g = 10 + y / 14, b = 40 + y / 5;
-		cv.fill(0, y, cv.w, 1, 0xff000000 | (r << 16) | (g << 8) | b);
+		cv.fill(-cv.ox, y, cv.pw, 1, 0xff000000 | (r << 16) | (g << 8) | b);
 	}
 	u32 t = SDL_GetTicks();
-	for (int i = 0; i < 6; i++)
+	int n = 6 * cv.pw / 400, span = cv.pw + 120;
+	for (int i = 0; i < n; i++)
 	{
-		int x = int((t / 30 + i * 80) % 520) - 60;
+		int x = int((t / 30 + i * 80) % u32(span)) - 60 - cv.ox;
 		cv.blend(x, 0, 18, cv.h, 0xffff6020, 18);
 	}
 }
@@ -644,10 +660,11 @@ void app::menu_frame()
 {
 	const auto &list = game_list();
 	int ng = int(list.size());
-	int n = ng + 2;                       // + language, about
+	int n = ng + 3;                       // + language, about, quit
 	if (m_menu_up) m_sel = (m_sel + n - 1) % n;
 	if (m_menu_down) m_sel = (m_sel + 1) % n;
-	if (m_menu_back) { m_quit = true; return; }
+	// Esc / B: first to "Quit", a second press quits (a stray B on the pad does not close the app)
+	if (m_menu_back) { if (m_sel == n - 1) { m_quit = true; return; } m_sel = n - 1; }
 	if (m_menu_net && m_sel < ng) { m_screen = screen::net_menu; m_net_sel = 0; m_local_ips = net_local_ipv4(); return; }
 	if (m_sel == ng && (m_menu_ok || m_menu_left || m_menu_right))
 	{
@@ -659,11 +676,12 @@ void app::menu_frame()
 	else if (m_menu_ok)
 	{
 		if (m_sel == ng + 1) { m_screen = screen::about; return; }
+		if (m_sel == ng + 2) { m_quit = true; return; }
 		if (m_avail[size_t(m_sel)]) { if (start_game(m_sel)) return; }
 		else message(m_why[size_t(m_sel)], 6000);
 	}
 
-	canvas cv(400, 300);
+	canvas cv(400, 300, menu_width());
 	draw_background(cv);
 	cv.text(cv.w / 2 - cv.text_w("NBA JAM", 4) / 2, 8, "NBA JAM", 0xffff8020, 4);
 	cv.text(cv.w / 2 - cv.text_w("RECOMP", 2) / 2, 42, "RECOMP", 0xffffffff, 2);
@@ -693,18 +711,22 @@ void app::menu_frame()
 		sel = m_sel == ng + 1;
 		if (sel) cv.blend(12, y - 3, cv.w - 24, 14, 0xffffa020, 90);
 		cv.text(20, y, tr("Acerca de NBA JAM Recomp", "About NBA JAM Recomp"), sel ? 0xffffffff : 0xffc8d8ff);
+		y += 14;
+		sel = m_sel == ng + 2;
+		if (sel) cv.blend(12, y - 3, cv.w - 24, 14, 0xffffa020, 90);
+		cv.text(20, y, tr("Salir", "Quit"), sel ? 0xffffffff : 0xffc8d8ff);
 	}
 	cv.text(8, cv.h - 21, tr("Enter/A: jugar   N/Y: juego en red", "Enter/A: play   N/Y: online game"), 0xffb0b0b0);
 	cv.text(8, cv.h - 11, tr("Esc: salir  F4: video  F11: pant. completa", "Esc: quit  F4: video  F11: fullscreen"), 0xffb0b0b0);
 	if (!m_message.empty() && SDL_GetTicks() < m_message_until) menu_message(cv, m_message);
-	present(cv.px.data(), cv.w, cv.h, false);
+	present(cv.px.data(), cv.pw, cv.h, false);
 	SDL_Delay(16);
 }
 
 void app::about_frame()
 {
 	if (m_menu_back || m_menu_ok) { m_screen = screen::menu; return; }
-	canvas cv(400, 300);
+	canvas cv(400, 300, menu_width());
 	draw_background(cv);
 	cv.text(cv.w / 2 - cv.text_w("NBA JAM RECOMP", 2) / 2, 8, "NBA JAM RECOMP", 0xffff8020, 2);
 	std::string ver = "Version " + app_version();
@@ -734,7 +756,7 @@ void app::about_frame()
 	line(tr("NBA JAM (c) Midway. Proyecto sin animo de lucro.", "NBA JAM (c) Midway. Non-profit fan project."), 0xffb0b0b0);
 	std::string back = tr("Enter / Esc: volver", "Enter / Esc: back");
 	cv.text(cv.w / 2 - cv.text_w(back) / 2, cv.h - 11, back, 0xffb0b0b0);
-	present(cv.px.data(), cv.w, cv.h, false);
+	present(cv.px.data(), cv.pw, cv.h, false);
 	SDL_Delay(16);
 }
 
@@ -780,7 +802,7 @@ void app::net_menu_frame()
 		else { m_screen = screen::net_lobby; return; }
 	}
 
-	canvas cv(400, 300);
+	canvas cv(400, 300, menu_width());
 	draw_background(cv);
 	std::string head = tr("JUEGO EN RED", "ONLINE GAME");
 	cv.text(cv.w / 2 - cv.text_w(head, 2) / 2, 12, head, 0xffff8020, 2);
@@ -815,7 +837,7 @@ void app::net_menu_frame()
 	cv.text_wrap(12, y + 3, m_editing ? tr("Escribe la IP y pulsa Enter (Ctrl+V pega)", "Type the IP and press Enter (Ctrl+V pastes)")
 	                                  : tr("Enter: elegir  Izq/Der: cambiar  Esc: volver", "Enter: select  Left/Right: change  Esc: back"), 0xffb0b0b0);
 	if (!m_message.empty() && SDL_GetTicks() < m_message_until) menu_message(cv, m_message);
-	present(cv.px.data(), cv.w, cv.h, false);
+	present(cv.px.data(), cv.pw, cv.h, false);
 	SDL_Delay(16);
 }
 
@@ -871,7 +893,7 @@ void app::net_lobby_frame()
 		return;
 	}
 
-	canvas cv(400, 300);
+	canvas cv(400, 300, menu_width());
 	draw_background(cv);
 	std::string head = tr("JUEGO EN RED", "ONLINE GAME");
 	cv.text(cv.w / 2 - cv.text_w(head, 2) / 2, 12, head, 0xffff8020, 2);
@@ -909,7 +931,7 @@ void app::net_lobby_frame()
 		line(tr("Esc: cancelar", "Esc: cancel"), 0xffb0b0b0);
 	}
 	if (!m_message.empty() && SDL_GetTicks() < m_message_until) menu_message(cv, m_message);
-	present(cv.px.data(), cv.w, cv.h, false);
+	present(cv.px.data(), cv.pw, cv.h, false);
 	SDL_Delay(10);
 }
 
